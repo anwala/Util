@@ -1960,7 +1960,7 @@ def genericErrorInfo():
 	errorMessage = fname + ', ' + str(exc_tb.tb_lineno)  + ', ' + str(sys.exc_info())
 	print('\tERROR:', errorMessage)
 	
-	outfile = open('/home/anwala/wsdl/projects/genericErrorDump.txt', 'w')
+	outfile = open(workingFolder() + 'genericErrorDump.txt', 'w')
 	outfile.write(getNowFilename() + '\n')
 	outfile.write(errorMessage)
 	outfile.close()
