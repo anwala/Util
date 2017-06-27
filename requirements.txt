@@ -1,1 +1,5 @@
 requests
+git+git://github.com/misja/python-boilerpipe.git
+beautifulsoup4
+textstat
+feedparser
