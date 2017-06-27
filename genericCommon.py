@@ -572,7 +572,7 @@ def getEntitiesFromText(plaintext, outfilename='tempNERTextToTag.txt'):
 	if( len(plaintext) == 0 ):
 		return []
 
-	filePathToTag = workingFolder() + 'NER-TEXT/'
+	filePathToTag = './NER-TEXT/'
 	try:
 		createFolderAtPath(filePathToTag)
 		filePathToTag += outfilename
