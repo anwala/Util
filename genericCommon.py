@@ -2333,7 +2333,7 @@ def expandUrl(url):
 	try:
 		#Part A: Attempts to unshorten the uri until the last response returns a 200 or 
 		output = check_output(['curl', '-s', '-I', '-L', '-m', '10', '-c', 'cookie.txt', url])
-		output = str(output)
+		output = output.decode('utf-8')
 		output = output.splitlines()
 		
 		longUrl = ''
