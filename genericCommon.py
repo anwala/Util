@@ -5,12 +5,14 @@ import time
 import json
 import hashlib
 import requests
+import operator
 import os, sys, getopt
 
 from bs4 import BeautifulSoup
 from datetime import datetime
 from subprocess import check_output
 
+from functools import reduce
 from random import randint
 from os.path import dirname, abspath
 from textstat.textstat import textstat
@@ -19,7 +21,6 @@ from urllib.parse import urlparse, quote, quote_plus
 
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.action_chains import ActionChains
-
 
 #local memeory project - start
 def getLMPMultiLinksScaffoldDict(linksList, isLMP=False):
@@ -277,11 +278,13 @@ def createFolderAtPath(path):
 			#print('\tcreateFolderAtPath(): created new folder for col:', path)
 		except:
 			genericErrorInfo()
-			print('\tcreateFolderAtPath(): created new folder for col:', path)
+			print('\tcreateFolderAtPath(): created new folder for:', path)
+	else:
+		print('\tcreateFolderAtPath(): folder exists for:', path)
 
 def getNowFilename():
 	filename = str(datetime.now()).split('.')[0]
-	return filename.replace(' ', '_').replace(':', '-')
+	return filename.replace(' ', 'T').replace(':', '-')
 
 def getNowTime():
 
@@ -289,6 +292,24 @@ def getNowTime():
 	return now.replace(' ', 'T')
 
 #dict - start
+
+def getFromDict(dataDict, mapList):
+	#credit: https://stackoverflow.com/a/14692747
+	
+	try:
+		return reduce(operator.getitem, mapList, dataDict)
+	except Exception as e:
+		if( isinstance(e, KeyError) == False ):
+			genericErrorInfo()
+		return None
+
+def setInDict(dataDict, mapList, value):
+	#credit: https://stackoverflow.com/a/14692747
+	try:
+		getFromDict(dataDict, mapList[:-1])[mapList[-1]] = value
+	except:
+		genericErrorInfo()
+
 def getDictFromFile(filename):
 
 	try:
@@ -442,6 +463,38 @@ def getStopwordsDict():
 
 
 #html - start
+
+def extractFavIconFromHTML(html, sourceURL):
+	sourceURL = sourceURL.strip()
+	favicon = ''
+	try:
+		soup = BeautifulSoup(html, 'html.parser')
+		links = soup.findAll('link')
+		breakFlag = False
+		for link in links:
+			if( link.has_attr('rel') ):
+				for rel in link['rel']:
+					
+					rel = rel.lower().strip()
+					if( rel.find('icon') != -1 or rel.find('shortcut') != -1 ):
+						favicon = link['href'].strip()
+						breakFlag = True
+						break
+
+			if( breakFlag ):
+				break
+
+		if( len(favicon) != 0 and len(sourceURL) != 0 ):
+			if( favicon.find('//') == 0 ):
+				favicon = 'http:' + favicon
+			elif( favicon[0] == '/' ):
+				scheme, netloc, path, params, query, fragment = urlparse( sourceURL )
+				favicon = scheme + '://' + netloc + favicon
+	except:
+		genericErrorInfo()
+
+	return favicon
+
 def clean_html(html, method='python-boilerpipe'):
 	
 
@@ -669,11 +722,16 @@ def readTextFromFile(infilename):
 
 	return text
 
-def dumpJsonToFile(outfilename, dictToWrite):
+def dumpJsonToFile(outfilename, dictToWrite, indentFlag=True):
 
 	try:
 		outfile = open(outfilename, 'w')
-		json.dump(dictToWrite, outfile, ensure_ascii=False)#by default, ensure_ascii=True, and this will cause  all non-ASCII characters in the output are escaped with \uXXXX sequences, and the result is a str instance consisting of ASCII characters only. Since in python 3 all strings are unicode by default, forcing ascii is unecessary
+		
+		if( indentFlag ):
+			json.dump(dictToWrite, outfile, ensure_ascii=False, indent=4)#by default, ensure_ascii=True, and this will cause  all non-ASCII characters in the output are escaped with \uXXXX sequences, and the result is a str instance consisting of ASCII characters only. Since in python 3 all strings are unicode by default, forcing ascii is unecessary
+		else:
+			json.dump(dictToWrite, outfile, ensure_ascii=False)
+
 		outfile.close()
 
 		print('\twriteTextToFile(), wrote:', outfilename)
@@ -696,6 +754,8 @@ def getTweetIDFromStatusURI(tweetURI):
 
 	return ''
 
+def getTweetLink(screenName, tweetId):
+	return 'https://twitter.com/' + screenName + '/status/' + tweetId
 
 def extractVideoLinkFromTweet(tweetURI, driver=None):
 	
@@ -731,7 +791,7 @@ def extractVideoLinkFromTweet(tweetURI, driver=None):
 
 	
 
-def extractTweetsFromSearch(query='', uri='', maxTweetCount=100):
+def extractTweetsFromSearch(query='', uri='', maxTweetCount=100, chromedriverPath='/usr/bin/chromedriver'):
 
 	query = query.strip()
 	uri = uri.strip()
@@ -742,18 +802,18 @@ def extractTweetsFromSearch(query='', uri='', maxTweetCount=100):
 	finalTweetsColDict = {}
 	if( len(query) != 0 ):
 		searchURI = 'https://twitter.com/search?f=tweets&q=' + quote_plus( query ) + '&src=typd'
-		finalTweetsColDict = extractTweetsFromTweetURI(searchURI, maxTweetCount)
+		finalTweetsColDict = extractTweetsFromTweetURI(searchURI, maxTweetCount, chromedriverPath=chromedriverPath)
 	else:
 		for urlPrefix in ['url:', '']:
 			searchURI = 'https://twitter.com/search?f=tweets&q=' + quote_plus( urlPrefix + uri ) + '&src=typd'
-			finalTweetsColDict = extractTweetsFromTweetURI(searchURI, maxTweetCount)
+			finalTweetsColDict = extractTweetsFromTweetURI(searchURI, maxTweetCount, chromedriverPath=chromedriverPath)
 
 			if( len(finalTweetsColDict) != 0 ):
 				break
 	
 	return finalTweetsColDict
 
-def extractTweetsFromTweetURI(tweetConvURI, tweetConvMaxTweetCount=100, noMoreTweetCounter=0):
+def extractTweetsFromTweetURI(tweetConvURI, tweetConvMaxTweetCount=100, noMoreTweetCounter=0, chromedriverPath='/usr/bin/chromedriver'):
 	#patched use of Chrome with:https://archive.is/94Idt
 	from selenium import webdriver
 
@@ -765,7 +825,7 @@ def extractTweetsFromTweetURI(tweetConvURI, tweetConvMaxTweetCount=100, noMoreTw
 		tweetConvMaxTweetCount = 100
 
 	try:
-		driver = webdriver.Chrome(executable_path='/usr/bin/chromedriver')
+		driver = webdriver.Chrome(executable_path=chromedriverPath)
 		driver.set_window_size(840,380)
 		#driver.maximize_window()
 		driver.get(tweetConvURI)		
@@ -1109,6 +1169,9 @@ def redditSearch(query, subreddit='', maxPages='', extraFieldsDict={}):
 
 def redditGetAllLinksFromCommentHTML(html):
 
+	if( html is None ):
+		return []
+		
 	lastIndex = -1
 	linksDict = {}
 	while( True ):
@@ -1166,25 +1229,32 @@ def redditRecursiveTraverseComment(payload, tabCount, detailsDict):
 		for child in payload['children']:
 			redditRecursiveTraverseComment( child, tabCount + 1, detailsDict )
 
-def redditGetLinksFromComment(commentURI):
+def redditGetLinksFromComment(commentURI, maxLinks=0):
+
+	print('redditGetLinksFromComment(), maxLinks:', maxLinks)
 
 	commentURI = commentURI.strip()
 	if( len(commentURI) == 0 ):
 		return []
 
-	if( commentURI[-1] == '/' ):
-		commentURI = commentURI[:-1]
-	commentURI = commentURI + '.json'
+	indexOfLastSlash = commentURI.rfind('/')
+	if( indexOfLastSlash == -1 ):
+		return []
 
+	#from: "https://www.reddit.com/r/worldnews/comments/5nv73m/former_mi6_agent_christopher_steeles_frustration/?ref=search_posts" 
+	#to:   "https://www.reddit.com/r/worldnews/comments/5nv73m/former_mi6_agent_christopher_steeles_frustration.json?ref=search_posts"
+	commentURI = commentURI[:indexOfLastSlash] + '.json' + commentURI[indexOfLastSlash+1:]
+	
 	detailsDict = {'comment-count': 0, 'links': []}
-	redditCommentJson = getDictFromJson(dereferenceURI(commentURI, 0))
+	redditCommentJson = getDictFromJson( dereferenceURI(commentURI) )
+	
 	for commentThread in redditCommentJson:
 		redditRecursiveTraverseComment( commentThread, 1, detailsDict )
 
-	#print('comment:', detailsDict['comment-count'])
-	#print( 'links:', len(detailsDict['links']) )
-	return detailsDict['links']
-
+	if( maxLinks == 0 ):
+		return detailsDict['links']
+	else:
+		return detailsDict['links'][:maxLinks]
 #reddit - end
 
 
@@ -1960,6 +2030,7 @@ def genericErrorInfo():
 	errorMessage = fname + ', ' + str(exc_tb.tb_lineno)  + ', ' + str(sys.exc_info())
 	print('\tERROR:', errorMessage)
 	
+
 	outfile = open(workingFolder() + 'genericErrorDump.txt', 'w')
 	outfile.write(getNowFilename() + '\n')
 	outfile.write(errorMessage)
@@ -2280,6 +2351,35 @@ def getMementoCount(uri, mememtoAggregator='http://memgator.cs.odu.edu/', timeou
 
 	return mementoCount
 
+def getDedupKeyForURI(uri):
+
+	uri = uri.strip()
+	if( len(uri) == 0 ):
+		return ''
+
+	exceptionDomains = ['www.youtube.com']
+
+	try:
+		scheme, netloc, path, params, query, fragment = urlparse( uri )
+		
+		netloc = netloc.strip()
+		path = path.strip()
+		optionalQuery = ''
+
+		if( len(path) != 0 ):
+			if( path[-1] != '/' ):
+				path = path + '/'
+
+		if( netloc in exceptionDomains ):
+			optionalQuery = query.strip()
+
+		return netloc + path + optionalQuery
+	except:
+		print('Error uri:', uri)
+		genericErrorInfo()
+
+	return ''
+
 def expanUrlSecondTry(url):
 
 	'''
@@ -2320,8 +2420,11 @@ def expanUrlSecondTry(url):
 
 	return url
 
-def expandUrl(url):
+def expandUrl(url, secondTryFlag=True, timeoutInSeconds='10'):
 
+	print('genericCommon.py - expandUrl():')
+	#http://tmblr.co/ZPYSkm1jl_mGt, http://bit.ly/1OLMlIF
+	timeoutInSeconds = str(timeoutInSeconds)
 	'''
 	Part A: Attempts to unshorten the uri until the last response returns a 200 or 
 	Part B: returns the lasts good url if the last response is not a 200.
@@ -2385,13 +2488,19 @@ def expandUrl(url):
 
 
 		return longUrl
-	except:
+	except Exception as e:
 		#Part B: returns the lasts good url if the last response is not a 200.
 		print('\terror url:', url)
-		genericErrorInfo()
+		print(e)
+		#genericErrorInfo()
 
-		print('\tsecond try')
-		return expanUrlSecondTry(url)
+		
+		
+		if( secondTryFlag ):
+			print('\tsecond try')
+			return expanUrlSecondTry(url)
+		else:
+			return url
 
 
 def expandUrl_obsolete1(url):
