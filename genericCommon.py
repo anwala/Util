@@ -18,9 +18,20 @@ from os.path import dirname, abspath
 from textstat.textstat import textstat
 from boilerpipe.extract import Extractor
 from urllib.parse import urlparse, quote, quote_plus
+from tldextract import extract
 
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.action_chains import ActionChains
+
+from newspaper import Article
+
+#class DocVect - start
+import math
+import string
+import numpy as np
+from nltk.stem.porter import PorterStemmer
+from sklearn.metrics import pairwise_distances
+#class DocVect - start
 
 #local memeory project - start
 def getLMPMultiLinksScaffoldDict(linksList, isLMP=False):
@@ -190,6 +201,27 @@ def intTryParse(value):
 #command line params - end
 
 #url - start
+def isURISocialMedia(uri):
+
+	uri = uri.strip()
+	if( len(uri) == 0 ):
+		return False
+
+	socialMediaDoms = set(
+		[
+			'twitter.com', 
+			'facebook.com', 
+			'youtube.com',
+			'instagram.com',
+			'tumblr.com'
+		])
+
+	if( getDomain(uri) in socialMediaDoms ):
+		return True
+	else:
+		return False
+
+
 def getCanonicalUrl(URL):
 	from surt import handyurl
 	from surt.IAURLCanonicalizer import canonicalize
@@ -279,8 +311,7 @@ def createFolderAtPath(path):
 		except:
 			genericErrorInfo()
 			print('\tcreateFolderAtPath(): created new folder for:', path)
-	else:
-		print('\tcreateFolderAtPath(): folder exists for:', path)
+
 
 def getNowFilename():
 	filename = str(datetime.now()).split('.')[0]
@@ -453,9 +484,157 @@ def getStopwordsDict():
 		'can': True,
 		'will': True,
 		'just': True,
-		'don': True,
+		'done': True,
 		'should': True,
-		'now': True
+		'would': True,
+		'now': True, #from sklearn stopwords
+		'also': True, 
+		'find': True, 
+		'besides': True, 
+		'neither': True, 
+		'moreover': True, 
+		'elsewhere': True, 
+		'seemed': True, 
+		'amoungst': True, 
+		'cannot': True, 
+		'whereupon': True, 
+		'since': True, 
+		'perhaps': True, 
+		'rather': True, 
+		'must': True, 
+		'thereafter': True, 
+		'whither': True, 
+		'often': True, 
+		'enough': True, 
+		'whose': True, 
+		'toward': True, 
+		'put': True, 
+		'else': True, 
+		'others': True, 
+		'sometime': True, 
+		'go': True, 
+		'everywhere': True,
+		'onto': True, 
+		'yet': True, 
+		'although': True, 
+		'anything': True, 
+		'though': True,
+		'several': True, 
+		're': True, 
+		'amongst': True, 
+		'least': True,
+		'whatever': True, 
+		'thus': True,
+		'across': True, 
+		'beforehand': True, 
+		'anyone': True,
+		'whenever': True, 
+		'ie': True, 
+		'hereupon': True, 
+		'nobody': True, 
+		'beyond': True, 
+		'someone': True, 
+		'along': True, 
+		'take': True, 
+		'therefore': True, 
+		'however': True, 
+		'another': True, 
+		'whether': True, 
+		'anyhow': True, 
+		'within': True, 
+		'anyway': True, 
+		'etc': True,
+		'etc.': True, 
+		'nothing': True, 
+		'somehow': True, 
+		'thereby': True, 
+		'therein': True, 
+		'either': True, 
+		'eg': True, 
+		'e.g': True,
+		'e.g.': True,
+		'towards': True,
+		'via': True,
+		'thru': True, 
+		'already': True, 
+		'keep': True, 
+		'upon': True, 
+		'us': True,
+		'less': True, 
+		'back': True, 
+		'wherein': True, 
+		'afterwards': True, 
+		'whence': True, 
+		'without': True, 
+		'hereby': True, 
+		'whoever': True, 
+		'sometimes': True, 
+		'become': True, 
+		'nevertheless': True, 
+		'amount': True, 
+		'every': True, 
+		'around': True, 
+		'formerly': True, 
+		'inc': True, 
+		'inc.': True,
+		'hereafter': True, 
+		'nowhere': True, 
+		'among': True, 
+		'un': True, 
+		'co': True, 
+		'see': True, 
+		'whereafter': True, 
+		'mine': True, 
+		'anywhere': True, 
+		'much': True, 
+		'next': True, 
+		'whole': True, 
+		'none': True, 
+		'latter': True, 
+		'everything': True, 
+		'can\'t': True,
+		'cant': True, 
+		'behind': True, 
+		'could': True, 
+		'somewhere': True, 
+		'whereas': True, 
+		'ever': True, 
+		'couldn\'t': True,
+		'couldnt': True, 
+		'beside': True, 
+		'still': True, 
+		'may': True, 
+		'seem': True, 
+		'even': True, 
+		'many': True, 
+		'wherever': True, 
+		'except': True, 
+		'alone': True, 
+		'indeed': True, 
+		'describe': True, 
+		'thence': True, 
+		'everyone': True, 
+		'thin': True, 
+		'seems': True,
+		'almost': True, 
+		'throughout': True, 
+		'side': True, 
+		'together': True, 
+		'became': True, 
+		'always': True, 
+		'herein': True, 
+		'mostly': True, 
+		'otherwise': True, 
+		'namely': True, 
+		'thereupon': True, 
+		'get': True, 
+		'meanwhile': True, 
+		'hasnt': True,
+		'hasn\'t'
+		'hence': True, 
+		'whereby': True, 
+		'never': True, 
+		'something': True
 	}
 	
 	return stopwordsDict
@@ -463,6 +642,98 @@ def getStopwordsDict():
 
 
 #html - start
+
+#twitter.nodejs - start
+def nodeExtractTweetsFromSearch(query='', uri='', maxTweetCount=100, latestVerticalFlag=False):
+
+	query = query.strip()
+	uri = uri.strip()
+
+	if( len(query) == 0 and len(uri) == 0 ):
+		return {}
+
+	if( latestVerticalFlag ):
+		latestVerticalFlag = 'f=tweets&'
+	else:
+		latestVerticalFlag = ''
+
+	twitterURIPrefix = 'https://twitter.com/search?' + latestVerticalFlag + 'q='#top
+	finalTweetsColDict = {}
+
+	if( len(query) != 0 ):
+		searchURI = twitterURIPrefix + quote_plus( query ) + '&src=typd'
+
+		try:
+			output = check_output([workingFolder() + 'nodejs-client/twt-client.js', str(maxTweetCount), searchURI])
+			output = output.decode('utf-8')
+			output = output.split('JSON-OUTPUT:')[1]
+			finalTweetsColDict = getDictFromJson(output)
+		except:
+			genericErrorInfo()
+
+	else:
+		for urlPrefix in ['url:', '']:
+			searchURI = twitterURIPrefix + quote_plus( urlPrefix + uri ) + '&src=typd'
+
+			try:
+				output = check_output([workingFolder() + 'nodejs-client/twt-client.js', str(maxTweetCount), searchURI])
+				output = output.decode('utf-8')
+				output = output.split('JSON-OUTPUT:')[1]
+				finalTweetsColDict = getDictFromJson(output)
+			except:
+				genericErrorInfo()
+
+			if( len(finalTweetsColDict) != 0 ):
+				break
+
+	return finalTweetsColDict
+
+def nodeExtractTweetsFromTweetURI(tweetConvURI, maxTweetCount=100):
+
+	tweetConvURI = tweetConvURI.strip()
+	if( tweetConvURI.find('https://twitter.com/') != 0 ):
+		return {}
+
+	if( maxTweetCount < 1 ):
+		maxTweetCount = 100
+
+
+	finalTweetsColDict = {}
+	try:
+		output = check_output([workingFolder() + 'nodejs-client/twt-client.js', str(maxTweetCount), tweetConvURI])
+		output = output.decode('utf-8')
+		output = output.split('JSON-OUTPUT:')[1]
+		finalTweetsColDict = getDictFromJson(output)
+	except:
+		genericErrorInfo()
+
+
+	return finalTweetsColDict
+
+def nodeExtractVideoLinkFromTweet(tweetURI):
+	
+	try:
+		twitterHTMLPage = nodeLoadWebpage(tweetURI, throttleSeconds=2)
+		soup = BeautifulSoup(twitterHTMLPage, 'html.parser')
+	except:
+		genericErrorInfo()
+		return ''
+
+	videoLink = ''
+	videoLinkContainer = soup.find(class_='AdaptiveMedia-videoContainer')
+
+	if( videoLinkContainer is not None ):
+		videoLinkContainer = videoLinkContainer.find('iframe')
+		if( videoLinkContainer is not None ):
+			if( videoLinkContainer.has_attr('src') ):
+				
+				videoLink = videoLinkContainer['src'].strip()
+				queryIndex = videoLink.find('?embed_source=')
+				if( queryIndex != -1 ):
+					 videoLink = videoLink[:queryIndex].strip()
+	
+	return videoLink
+#twitter.nodejs - end
 
 def extractFavIconFromHTML(html, sourceURL):
 	sourceURL = sourceURL.strip()
@@ -497,7 +768,6 @@ def extractFavIconFromHTML(html, sourceURL):
 
 def clean_html(html, method='python-boilerpipe'):
 	
-
 	if( method == 'python-boilerpipe' ):
 		try:
 			extractor = Extractor(extractor='ArticleExtractor', html=html)
@@ -532,6 +802,19 @@ def clean_html(html, method='python-boilerpipe'):
 		return cleaned.strip()
 
 	return ''
+
+def getArticlePubDate(uri, html):
+
+	article = Article(uri)
+	article.download(input_html=html)
+	article.parse()
+
+	if( article.publish_date is None ):
+		return ''
+	else:
+		pubdate = article.publish_date
+		return str(pubdate.date()) + ' ' + str(pubdate.time())
+
 #html - end
 
 
@@ -736,6 +1019,7 @@ def dumpJsonToFile(outfilename, dictToWrite, indentFlag=True):
 
 		print('\twriteTextToFile(), wrote:', outfilename)
 	except:
+		print('\terror: outfilename:', outfilename)
 		genericErrorInfo()
 #file - end
 
@@ -791,7 +1075,7 @@ def extractVideoLinkFromTweet(tweetURI, driver=None):
 
 	
 
-def extractTweetsFromSearch(query='', uri='', maxTweetCount=100, chromedriverPath='/usr/bin/chromedriver'):
+def extractTweetsFromSearch(query='', uri='', maxTweetCount=100, chromedriverPath='/usr/bin/chromedriver', latestVerticalFlag=False):
 
 	query = query.strip()
 	uri = uri.strip()
@@ -799,13 +1083,20 @@ def extractTweetsFromSearch(query='', uri='', maxTweetCount=100, chromedriverPat
 	if( len(query) == 0 and len(uri) == 0 ):
 		return {}
 
+	if( latestVerticalFlag ):
+		latestVerticalFlag = 'f=tweets&'
+	else:
+		latestVerticalFlag = ''
+
+	twitterURIPrefix = 'https://twitter.com/search?' + latestVerticalFlag + 'q='#top
+
 	finalTweetsColDict = {}
 	if( len(query) != 0 ):
-		searchURI = 'https://twitter.com/search?f=tweets&q=' + quote_plus( query ) + '&src=typd'
+		searchURI = twitterURIPrefix + quote_plus( query ) + '&src=typd'
 		finalTweetsColDict = extractTweetsFromTweetURI(searchURI, maxTweetCount, chromedriverPath=chromedriverPath)
 	else:
 		for urlPrefix in ['url:', '']:
-			searchURI = 'https://twitter.com/search?f=tweets&q=' + quote_plus( urlPrefix + uri ) + '&src=typd'
+			searchURI = twitterURIPrefix + quote_plus( urlPrefix + uri ) + '&src=typd'
 			finalTweetsColDict = extractTweetsFromTweetURI(searchURI, maxTweetCount, chromedriverPath=chromedriverPath)
 
 			if( len(finalTweetsColDict) != 0 ):
@@ -830,6 +1121,7 @@ def extractTweetsFromTweetURI(tweetConvURI, tweetConvMaxTweetCount=100, noMoreTw
 		#driver.maximize_window()
 		driver.get(tweetConvURI)		
 	except:
+		print('\tsupplied chromedriverpath:', chromedriverPath)
 		genericErrorInfo()
 		return {}
 
@@ -1007,6 +1299,7 @@ def twitterGetTweetIfExist(potentialTweetDiv):
 
 	tweetDict['tweet-text'] = ''
 	tweetDict['tweet-time'] = ''
+	tweetDict['user-verified'] = False
 	tweetDict['tweet-links'] = []
 	tweetDict['is-video-adaptive-present'] = False
 	uniformAccessAttrs = ['data-conversation-id', 'data-mentions']
@@ -1019,6 +1312,9 @@ def twitterGetTweetIfExist(potentialTweetDiv):
 	if( len(tweetTag) != 0 ):
 		if( tweetTag[0].has_attr('title') ):
 			tweetDict['tweet-time'] = tweetTag[0]['title']
+
+	if( potentialTweetDiv.find(class_='Icon--verified') is not None ):
+		tweetDict['user-verified'] = True
 
 	for attr in uniformAccessAttrs:
 		tweetDict[attr] = ''
@@ -1047,7 +1343,7 @@ def isTweetPresent(soup):
 
 	return ''
 
-def isURIInTweet(link, driver=None, closeBrowserFlag=True):
+def isURIInTweet(link, driver=None, closeBrowserFlag=True, chromedriverPath='/usr/bin/chromedriver'):
 
 	print('\nisURIInTweet()')
 
@@ -1059,7 +1355,11 @@ def isURIInTweet(link, driver=None, closeBrowserFlag=True):
 	tweetPath = ''
 	if( driver is None ):
 		from selenium import webdriver
-		driver = webdriver.Firefox()
+		try:
+			driver = webdriver.Chrome(executable_path=chromedriverPath)
+		except:
+			genericErrorInfo()
+			return ''
 
 	for urlPrefix in ['url:', '']:
 		print('\t\turi prefix:', urlPrefix)
@@ -1208,6 +1508,12 @@ def redditRecursiveTraverseComment(payload, tabCount, detailsDict):
 			if( 'data' in payload ):
 				if( 'selftext_html' in payload['data'] ):
 					detailsDict['links'] += redditGetAllLinksFromCommentHTML( payload['data']['selftext_html'] )
+		
+		elif( payload['kind'] == 'LiveUpdate' ):
+
+			if( 'data' in payload ):
+				if( 'body_html' in payload['data'] ):
+					detailsDict['links'] += redditGetAllLinksFromCommentHTML( payload['data']['body_html'] )
 
 		elif( payload['kind'] == 't1' ):
 
@@ -1231,7 +1537,7 @@ def redditRecursiveTraverseComment(payload, tabCount, detailsDict):
 
 def redditGetLinksFromComment(commentURI, maxLinks=0):
 
-	print('redditGetLinksFromComment(), maxLinks:', maxLinks)
+	print('\n\tredditGetLinksFromComment(), maxLinks:', maxLinks)
 
 	commentURI = commentURI.strip()
 	if( len(commentURI) == 0 ):
@@ -1247,9 +1553,15 @@ def redditGetLinksFromComment(commentURI, maxLinks=0):
 	
 	detailsDict = {'comment-count': 0, 'links': []}
 	redditCommentJson = getDictFromJson( dereferenceURI(commentURI) )
-	
-	for commentThread in redditCommentJson:
-		redditRecursiveTraverseComment( commentThread, 1, detailsDict )
+	payloadType = type(redditCommentJson)
+
+	if( payloadType == dict ):		
+		redditRecursiveTraverseComment( redditCommentJson, 1, detailsDict )	
+
+	elif( payloadType == list ):
+
+		for commentThread in redditCommentJson:
+			redditRecursiveTraverseComment( commentThread, 1, detailsDict )
 
 	if( maxLinks == 0 ):
 		return detailsDict['links']
@@ -1544,6 +1856,13 @@ def getSimilarityScore(str0, str1):
 
 	return similarityScore
 
+def sleepCountDown(seconds):
+	for i in range(seconds, 0, -1):
+		time.sleep(1)
+		sys.stdout.write(str(i)+' ')
+		sys.stdout.flush()
+	print()
+
 def randSleep(maxSleepInSeconds=5):
 
 	if( maxSleepInSeconds < 1 ):
@@ -1587,7 +1906,7 @@ def getQueryReciprocalRank(query, expectedLink, maxPageToVisit=3, seleniumFlag=F
 			print('\tquery:', query)
 			print('\texpectedLink:', expectedLink)
 			
-			googleHTMLPage = googleGetHTMLPage(query, page, seleniumFlag)
+			googleHTMLPage = googleGetHTMLPage(searchString=query, page=page, seleniumFlag=seleniumFlag)
 			soup = BeautifulSoup( googleHTMLPage, 'html.parser' )
 			linksDict = googleRetrieveLinksFromPage(soup)
 			
@@ -1621,6 +1940,7 @@ def googleGetHTMLPage(searchString, page, siteDirective='', seleniumFlag=False):
 	if( len(searchString) == 0 ):
 		return ''
 
+
 	'''
 	searchString = searchString.split(' ')
 	queryFragment = ''
@@ -1648,6 +1968,7 @@ def googleGetHTMLPage(searchString, page, siteDirective='', seleniumFlag=False):
 	#return ''
 
 	googleHTMLPage = ''
+	
 	try:
 		if( seleniumFlag ):
 			from selenium import webdriver
@@ -1672,7 +1993,13 @@ def googleRetrieveLinksFromPage(googleHTMLSoup, rankAdditiveFactor=0, page=1):
 	#linksDict format: {link, [crawlDatetime|nowDatetime]}
 	linksDict = {}
 	rank = 0
-	results = googleHTMLSoup.findAll('div', {'class': 'srg'})#'srg' or 'med'
+	results = []
+
+	for possibleClasses in ['med', 'srg']:
+		results = googleHTMLSoup.findAll('div', {'class': possibleClasses})
+		if( len(results) != 0 ):
+			break
+
 	for result in results:
 
 		liOrDiv = result.findAll('li', {'class': 'g'})
@@ -1681,8 +2008,15 @@ def googleRetrieveLinksFromPage(googleHTMLSoup, rankAdditiveFactor=0, page=1):
 
 		for resultInstance in liOrDiv:
 
+			if( resultInstance.h3 == None ):
+				continue
+
 			crawlDateTime = resultInstance.find('span', {'class':'f'})
-			snippet = resultInstance.find('span', {'class':'st'})
+			for possibleTag in ['span', 'div']:
+				snippet = resultInstance.find(possibleTag, {'class':'st'})
+				if( snippet is not None ):
+					break
+
 
 			if( snippet is None ):
 				snippet = ''
@@ -1713,8 +2047,6 @@ def googleRetrieveLinksFromPage(googleHTMLSoup, rankAdditiveFactor=0, page=1):
 					#if crawlDateTime does not meet expected format
 					print('googleRetrieveLinksFromPage(): unexpected datetime format:', crawlDateTime)
 					crawlDateTime = str(datetime.now()).split('.')[0].replace(' ', 'T')
-			
-			#print(crawlDateTime)
 
 			title = resultInstance.h3.a.text
 			#title = title.encode('ascii', 'ignore')
@@ -1917,6 +2249,30 @@ def getLinks(uri='', html='', commaDelDomainsToExclude='', fromMainTextFlag=True
 
 	return allLinks
 
+def derefURICache(uri, cacheFolder='', lookupCache=True):
+
+	uri = uri.strip()
+	cacheFolder = cacheFolder.strip()
+
+	if( len(uri) == 0 ):
+		return ''
+
+	if( len(cacheFolder) == 0 ):
+		cacheFolder = './html-cache/'
+
+	if( cacheFolder[-1] != '/' ):
+		cacheFolder = cacheFolder + '/'
+
+	createFolderAtPath(cacheFolder)
+	uriFilename = cacheFolder + getURIHash(uri) + '.html'
+
+	if( os.path.exists(uriFilename) and lookupCache ):
+		return readTextFromFile(uriFilename)
+	else:
+		html = dereferenceURI( uri, 0 )
+		writeTextToFile(uriFilename, html)
+		return html
+
 def dereferenceURI(URI, maxSleepInSeconds=5):
 	
 	#print('dereferenceURI():', URI)
@@ -1943,7 +2299,7 @@ def dereferenceURI(URI, maxSleepInSeconds=5):
 	
 	return htmlPage
 
-def getDomain(url):
+def getDomain(url, includeSubdomain=True):
 
 	url = url.strip()
 	if( len(url) == 0 ):
@@ -1955,17 +2311,32 @@ def getDomain(url):
 	domain = ''
 	
 	try:
-		domain = urlparse(url)
+		ext = extract(url)
+		
+		domain = ext.domain.strip()
+		subdomain = ext.subdomain.strip()
+		suffix = ext.suffix.strip()
+
+		if( len(suffix) != 0 ):
+			suffix = '.' + suffix 
+
+		if( len(domain) != 0 ):
+			domain = domain + suffix
+		
+		if( subdomain.find('www') == 0 ):
+			if( len(subdomain) > 3 ):
+				subdomain = subdomain[4:]
+			else:
+				subdomain = subdomain[3:]
+
+		if( len(subdomain) != 0 ):
+			subdomain = subdomain + '.'
+
+		if( includeSubdomain ):
+			domain = subdomain + domain
 	except:
 		genericErrorInfo()
 		return ''
-
-	domain = domain.netloc.strip()
-
-	indexOfDot = domain.find('www.')
-	#remove www. prefix
-	if( indexOfDot == 0 ):
-		domain = domain[indexOfDot+4:]
 
 	return domain
 
@@ -2137,6 +2508,36 @@ def phantomJSGetHTML(uri):
 	return html
 
 
+#uri - start
+
+def isURIShort(uri):
+
+	try:
+		scheme, netloc, path, params, query, fragment = urlparse( uri )
+		path = path.strip()
+
+		if( len(path) != 0 ):
+			if( path[0] == '/' ):
+				path = path[1:]
+
+		path = path.split('/')
+		if( len(path) > 1 ):
+			#path length exceeding 1 is not considered short
+			return False
+
+		tld = extract(uri).suffix
+		tld = tld.split('.')
+		if( len(tld) == 1 ):
+			#e.g., tld = 'com', 'ly'
+			if( len(tld[0]) == 2 ):
+				return True
+		else:
+			#e.g., tld = 'co.uk'
+			return False
+	except:
+		genericErrorInfo()
+
+	return False
 
 def seleniumLoadPageScrollToEnd(driver, uri, waitTimeInSeconds=10, closeBrowerFlag=True, maxScroll=20):
 	print('seleniumLoadWebpage():')
@@ -2208,6 +2609,30 @@ def seleniumLoadWebpage(driver, uri, waitTimeInSeconds=10, closeBrowerFlag=True)
 		
 		if( closeBrowerFlag ):
 			driver.quit()
+	except:
+		genericErrorInfo()
+		return ''
+
+	return html
+
+def nodeLoadWebpage(uri, throttleSeconds=3):
+	
+	print('\nnodeLoadWebpage():')
+
+	uri = uri.strip()
+	if( len(uri) == 0 ):
+		return ''
+	html = ''
+
+	try:
+		print('\tgetting:', uri)
+
+		if( throttleSeconds > 0 ):
+			print('\tthrottleSeconds:', throttleSeconds)
+			time.sleep(throttleSeconds)
+		
+		html = check_output([workingFolder() + 'nodejs-client/browser.js', uri])
+		html = html.decode('utf-8')
 	except:
 		genericErrorInfo()
 		return ''
@@ -2422,7 +2847,7 @@ def expanUrlSecondTry(url):
 
 def expandUrl(url, secondTryFlag=True, timeoutInSeconds='10'):
 
-	print('genericCommon.py - expandUrl():')
+	print('\tgenericCommon.py - expandUrl():', url)
 	#http://tmblr.co/ZPYSkm1jl_mGt, http://bit.ly/1OLMlIF
 	timeoutInSeconds = str(timeoutInSeconds)
 	'''
@@ -2502,6 +2927,7 @@ def expandUrl(url, secondTryFlag=True, timeoutInSeconds='10'):
 		else:
 			return url
 
+#uri - end
 
 def expandUrl_obsolete1(url):
 
@@ -2615,5 +3041,265 @@ def getConfigParameters(configPathFilename, keyValue=''):
 		genericErrorInfo()
 
 	return returnValue
+
+class DocVect(object):
+
+	translator = str.maketrans({key: None for key in string.punctuation})
+
+	@staticmethod
+	def buildLexicon(corpus, stopwordsFlag=True, stemFlag=True, punctuationFlag=True):
+
+		stopwordsDict = getStopwordsDict()
+		lexicon = []
+		dedupDict = {}
+
+		for doc in corpus:
+			doc = doc.split()
+
+			for word in doc:
+
+				if( punctuationFlag ):
+					#word = removeSomePunctuations(word)
+					word = word.translate(DocVect.translator)
+
+				word = word.lower()
+
+				if( stopwordsFlag ):
+					if( word in stopwordsDict ):
+						continue
+
+				if( stemFlag ):
+					stemmer = PorterStemmer()
+					word = stemmer.stem(word)
+
+				if( word not in dedupDict ):
+					lexicon.append(word)
+					dedupDict[word] = True
+
+		return lexicon
+
+	@staticmethod
+	def getDocVector(document, vocabulary):
+		return [DocVect.tf(word, document) for word in vocabulary]
+
+	@staticmethod
+	def getIDFMatrix(docList, vocabulary):
+		idfVector = [DocVect.idf(word, docList) for word in vocabulary]
+		#return idfVector
+		return DocVect.buildIDFMatrix(idfVector)
+
+	@staticmethod
+	def getDocTermMatrix_obsolete(docList, vocab):
+		
+		if( len(docList) == 0 or len(vocab) == 0 ):
+			return []
+
+		'''
+			docList: ['Julie loves me more than Linda loves me',
+			'Jane likes me more than Julie loves me',
+			'He likes basketball more than baseball']
+
+			vocab: [Julie, loves, me, more, than, Linda, Jane, likes, He, basketball, baseball]
+		'''
+
+		docTermMatrix = []
+		for doc in docList:
+
+			#tfVector': [1, 2, 2, 1, 1, 1, 0, 0, 0, 0, 0]
+			tfVector = DocVect.getDocVector(doc, vocab)
+			docTermMatrix.append(tfVector)
+
+		return docTermMatrix
+
+	@staticmethod
+	def getDocTermMatrixAndVocab(docList, ngramRange=(1,1)):
+		
+		if( len(docList) == 0 ):
+			return []
+
+		'''
+			docList: ['Julie loves me more than Linda loves me',
+			'Jane likes me more than Julie loves me',
+			'He likes basketball more than baseball']
+
+			vocab: [Julie, loves, me, more, than, Linda, Jane, likes, He, basketball, baseball]
+		'''
+
+		from sklearn.feature_extraction.text import CountVectorizer
+		from sklearn.feature_extraction.text import TfidfTransformer
+
+		count_vectorizer = CountVectorizer( min_df=1, stop_words='english', ngram_range=ngramRange )
+		term_freq_matrix = count_vectorizer.fit_transform(docList)
+		
+		return {'mat': term_freq_matrix.todense(), 'vocab': list(count_vectorizer.vocabulary_.keys()) }
+		
+
+	@staticmethod
+	def getNormalizedTFIDFMatrixFromDocList_dev(docList):
+
+		vocabulary = DocVect.buildLexicon(docList, stopwordsFlag=True, stemFlag=True, punctuationFlag=True)
+
+		prevNow = datetime.now()
+		idfMatrix = DocVect.getIDFMatrix(docList, vocabulary)
+		delta = datetime.now() - prevNow
+		print('\tdelta getIDFMatrix seconds:', delta.seconds)
+
+		prevNow = datetime.now()
+		docTermMatrix = DocVect.getDocTermMatrix(docList, vocabulary)
+		delta = datetime.now() - prevNow
+		print('\tdelta getDocTermMatrix seconds:', delta.seconds)
+
+		return DocVect.getNormalizedTFIDFMatrix(docTermMatrix, idfMatrix)
+
+	@staticmethod
+	def getNormalizedTFIDFMatrixFromDocList(docList, ngramRange=(1,1)):
+		
+		'''
+			Preprocessing notes:
+			stopwords not removed
+			lowercased
+			for more see:
+				http://scikit-learn.org/stable/modules/generated/sklearn.feature_extraction.text.CountVectorizer.html#sklearn.feature_extraction.text.CountVectorizer
+			vs 
+
+			story graph preprocessing:
+			Lowercased
+			Removal of punctuation
+			Removal of stopwords
+			Not tokenized
+				datetimes and percent and money
+		'''
+		from sklearn.feature_extraction.text import CountVectorizer
+		from sklearn.feature_extraction.text import TfidfTransformer
+
+		count_vectorizer = CountVectorizer(min_df=1, stop_words='english', ngram_range=ngramRange)
+		term_freq_matrix = count_vectorizer.fit_transform(docList)
+		
+		#debug - start
+		'''
+			print('\n\nVocabulary:', count_vectorizer.vocabulary_, '\n')
+			sortedVocab = sorted(count_vectorizer.vocabulary_.items(), key=lambda x: x[1], reverse=True)
+			print( '\nVocab:' )
+			for tup in sortedVocab:
+				print(tup, end='')
+			print()
+		'''
+		#debug - end
+
+		tfidf = TfidfTransformer(norm='l2')
+		tfidf.fit(term_freq_matrix)
+
+		tf_idf_matrix = tfidf.transform(term_freq_matrix)
+		return tf_idf_matrix.todense().tolist()
+
+	@staticmethod
+	def getNormalizedTFIDFMatrix(doc_term_matrix, my_idf_matrix):
+		
+		doc_term_matrix_tfidf = []
+		#performing tf-idf matrix multiplication, then normalizing
+		for tf_vector in doc_term_matrix:
+			tf_idf_vector = np.dot(tf_vector, my_idf_matrix)
+			doc_term_matrix_tfidf.append(DocVect.l2_normalizer(tf_idf_vector))
+		
+		return doc_term_matrix_tfidf
+
+	@staticmethod 
+	def getSimOrDistMatrix(matrix, matrixType='sim'):
+		
+		matrix = np.array(matrix)
+		matrix = pairwise_distances(matrix, metric='cosine')
+
+		if( matrixType == 'sim' ):
+			matrix = 1 - matrix
+
+		return matrix.tolist()
+
+	@staticmethod
+	def tf(term, document):
+		return DocVect.freq(term, document)
+
+	@staticmethod
+	def freq(term, document):
+		return document.split().count(term)
+
+	@staticmethod
+	def idf(word, doclist):
+		n_samples = len(doclist)
+		df = DocVect.numDocsContaining(word, doclist)
+		return np.log(n_samples / 1+df)
+
+	@staticmethod
+	def l2_normalizer(vec):
+
+		denom = np.sum([el**2 for el in vec])
+		
+		if( denom <= 0 ):
+			return list(vec)
+
+		return [(el / math.sqrt(denom)) for el in vec]
+
+		'''
+			print('zero denom')
+			print('denom:', denom)
+			print('len(vec):', len(vec))
+			print('len(retVal):', len(retVal))
+			print('retVal[0]', retVal[0])
+			print('type(retVal):', type(retVal))
+			print('type(vec):', type(list(vec)))
+			print('vec:', list(vec))
+			print()
+			print()
+			print()
+			return retVal
+		'''
+
+	@staticmethod
+	def numDocsContaining(word, doclist):
+		doccount = 0
+		for doc in doclist:
+			if DocVect.freq(word, doc) > 0:
+				doccount +=1
+		return doccount
+
+	@staticmethod
+	def buildIDFMatrix(idfVector):
+		idf_mat = np.zeros((len(idfVector), len(idfVector)))
+		np.fill_diagonal(idf_mat, idfVector)
+		return idf_mat
+
+	@staticmethod
+	def cosineSim(X, Y):
+		try:
+			X2Norm = np.linalg.norm(X, 2)
+			Y2Norm = np.linalg.norm(Y, 2)
+			
+			if( X2Norm == 0 or Y2Norm == 0 ):
+				return 0
+				
+			return round(np.dot(X, Y)/(X2Norm * Y2Norm), 10)
+		except:
+			genericErrorInfo()
+			return 0
+
+	@staticmethod
+	def cosineDist(X, Y):
+		return 1 - DocVect.cosineSim(X, Y)
+
+	@staticmethod
+	def centroidOfMatrix(vectorsList):
+
+		if( len(vectorsList) == 0 ):
+			return []	
+
+		centroid = list(np.zeros(len(vectorsList[0])))
+		
+		for vector in vectorsList:
+			for j in range(0, len(vector)):
+				centroid[j] += vector[j]
+
+		for i in range(0, len(centroid)):
+			centroid[i] = centroid[i]/len(vectorsList)
+
+		return centroid
 #directive: googleRetrieveLinksFromPage() consider not relying on tag signature for retrieving links with site directive
 #directive: mememetoAggregator single initialization and retrieval from a config file

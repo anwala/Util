@@ -3,4 +3,5 @@
 .*
 !.gitignore
 scratch.py
+__pycache__
 
