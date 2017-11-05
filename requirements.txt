@@ -9,3 +9,4 @@ newspaper3k
 numpy==1.13.1
 nltk==3.2.4
 sklearn
+scipy==0.19.1
