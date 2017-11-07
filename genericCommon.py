@@ -924,7 +924,9 @@ def getEntitiesFromText(plaintext, outfilename='tempNERTextToTag.txt'):
 	try:
 		#tagedText = check_output([workingFolder() + 'runJavaNER.sh'])
 		tagedText = check_output(['java', '-mx500m', '-cp', workingFolder() + 'stanford-ner-3.4.jar', 'edu.stanford.nlp.ie.crf.CRFClassifier', '-loadClassifier', workingFolder() + 'english.muc.7class.distsim.crf.ser.gz', '-textFile', filePathToTag, '-outputFormat', 'inlineXML', '2>', '/dev/null'])
-		tagedText = str(tagedText)
+		tagedText = tagedText.decode('utf-8')
+		#tagedText = str(tagedText)
+		
 
 		entities = []
 		INLINEXML_EPATTERN  = re.compile(r'<([A-Z]+?)>(.+?)</\1>')
