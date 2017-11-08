@@ -853,34 +853,39 @@ def isExclusivePunct(text):
 
 def getTopKTermsListFromText(text, k, minusStopwords=True):
 
-	if( len(text) == 0 ):
-		return []
+	try:#try catch temporary patch to external problem
 
-	stopWordsDict = {}
-	if( minusStopwords ):
-		stopWordsDict = getStopwordsDict()
+		if( len(text) == 0 ):
+			return []
 
-	topKTermDict = {}
-	topKTermsList = []
-	text = text.split(' ')
+		stopWordsDict = {}
+		if( minusStopwords ):
+			stopWordsDict = getStopwordsDict()
 
-	for term in text:
-		term = term.strip().lower()
-		
-		if( len(term) == 0 or term in stopWordsDict or isExclusivePunct(term) == True ):
-			continue
+		topKTermDict = {}
+		topKTermsList = []
+		text = text.split(' ')
 
-		topKTermDict.setdefault(term, 0)
-		topKTermDict[term] += 1
+		for term in text:
+			term = term.strip().lower()
+			
+			if( len(term) == 0 or term in stopWordsDict or isExclusivePunct(term) == True ):
+				continue
 
-	sortedKeys = sorted( topKTermDict, key=lambda freq:topKTermDict[freq], reverse=True )
+			topKTermDict.setdefault(term, 0)
+			topKTermDict[term] += 1
 
-	if( k > len(sortedKeys) ):
-		k = len(sortedKeys)
+		sortedKeys = sorted( topKTermDict, key=lambda freq:topKTermDict[freq], reverse=True )
 
-	for i in range(k):
-		key = sortedKeys[i]
-		topKTermsList.append((key, topKTermDict[key]))
+		if( k > len(sortedKeys) ):
+			k = len(sortedKeys)
+
+		for i in range(k):
+			key = sortedKeys[i]
+			topKTermsList.append((key, topKTermDict[key]))
+	
+	except:
+		genericErrorInfo()
 
 	return topKTermsList
 
