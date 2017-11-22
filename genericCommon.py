@@ -10,6 +10,8 @@ import os, sys, getopt
 
 from bs4 import BeautifulSoup
 from datetime import datetime
+
+from subprocess import Popen
 from subprocess import check_output
 
 from functools import reduce
@@ -29,8 +31,12 @@ from newspaper import Article
 import math
 import string
 import numpy as np
+from numpy import linalg as LA
 from nltk.stem.porter import PorterStemmer
 from sklearn.metrics import pairwise_distances
+
+from sklearn.feature_extraction.text import CountVectorizer
+from sklearn.feature_extraction.text import TfidfTransformer
 #class DocVect - start
 
 #local memeory project - start
@@ -853,39 +859,34 @@ def isExclusivePunct(text):
 
 def getTopKTermsListFromText(text, k, minusStopwords=True):
 
-	try:#try catch temporary patch to external problem
+	if( len(text) == 0 ):
+		return []
 
-		if( len(text) == 0 ):
-			return []
+	stopWordsDict = {}
+	if( minusStopwords ):
+		stopWordsDict = getStopwordsDict()
 
-		stopWordsDict = {}
-		if( minusStopwords ):
-			stopWordsDict = getStopwordsDict()
+	topKTermDict = {}
+	topKTermsList = []
+	text = text.split(' ')
 
-		topKTermDict = {}
-		topKTermsList = []
-		text = text.split(' ')
+	for term in text:
+		term = term.strip().lower()
+		
+		if( len(term) == 0 or term in stopWordsDict or isExclusivePunct(term) == True ):
+			continue
 
-		for term in text:
-			term = term.strip().lower()
-			
-			if( len(term) == 0 or term in stopWordsDict or isExclusivePunct(term) == True ):
-				continue
+		topKTermDict.setdefault(term, 0)
+		topKTermDict[term] += 1
 
-			topKTermDict.setdefault(term, 0)
-			topKTermDict[term] += 1
+	sortedKeys = sorted( topKTermDict, key=lambda freq:topKTermDict[freq], reverse=True )
 
-		sortedKeys = sorted( topKTermDict, key=lambda freq:topKTermDict[freq], reverse=True )
+	if( k > len(sortedKeys) ):
+		k = len(sortedKeys)
 
-		if( k > len(sortedKeys) ):
-			k = len(sortedKeys)
-
-		for i in range(k):
-			key = sortedKeys[i]
-			topKTermsList.append((key, topKTermDict[key]))
-	
-	except:
-		genericErrorInfo()
+	for i in range(k):
+		key = sortedKeys[i]
+		topKTermsList.append((key, topKTermDict[key]))
 
 	return topKTermsList
 
@@ -906,6 +907,60 @@ def avgReadabilityGrade(text):
 	'''
 
 	return avgGrade/3
+
+def nlpStartServer():
+	
+	try:
+
+		proc = Popen(workingFolder() + 'corenlp/run.sh')
+		
+		#enable server to load modules
+		time.sleep(2)
+		text = 'The quick brown fox jumped over the lazy dog.'
+		Popen(['wget', '-q', '-O', '-', '--post-data', text, 'localhost:9000/?properties={"annotators":"entitymentions","outputFormat":"json","date":"2017-11-04T19:03:47"}'])
+	except:
+		genericErrorInfo()
+
+#iso8601Date: YYYY-MM-DDTHH:MM:SS
+def nlpGetEntitiesFromText(text, iso8601Date='', labelLst=['PERSON','LOCATION','ORGANIZATION','DATE','MONEY','PERCENT','TIME']):
+
+	labelLst = set(labelLst)
+	iso8601Date = iso8601Date.strip()
+	if( len(iso8601Date) != 0 ):
+		iso8601Date = ',"date":"' + iso8601Date + '"'
+
+	request = 'localhost:9000/?properties={"annotators":"entitymentions","outputFormat":"json"' + iso8601Date + '}'
+	entities = []
+	dedupSet = set()
+
+	try:
+		output = check_output(['wget', '-q', '-O', '-', '--post-data', text, request])
+		parsed = json.loads(output.decode('utf-8'))
+		
+		if( 'sentences' not in parsed ):
+			return []
+
+		for sent in parsed['sentences']:
+			if( 'entitymentions' in sent ):
+				for entity in sent['entitymentions']:
+
+					dedupKey = entity['text'] + entity['ner']
+					
+					if( dedupKey not in dedupSet and entity['ner'] in labelLst ):
+						entities.append( [entity['text'], entity['ner']] )
+						dedupSet.add(dedupKey)
+	except:
+		genericErrorInfo()
+
+	return entities
+
+def nlpStopServer():
+
+	try:
+		check_output(['docker', 'rm', '-f', 'corenlpCon'])
+	except:
+		genericErrorInfo()
+
 
 def getEntitiesFromText(plaintext, outfilename='tempNERTextToTag.txt'):
 	#print('\ngetEntitiesFromText::getEntities() - start')
@@ -929,11 +984,8 @@ def getEntitiesFromText(plaintext, outfilename='tempNERTextToTag.txt'):
 	try:
 		#tagedText = check_output([workingFolder() + 'runJavaNER.sh'])
 		tagedText = check_output(['java', '-mx500m', '-cp', workingFolder() + 'stanford-ner-3.4.jar', 'edu.stanford.nlp.ie.crf.CRFClassifier', '-loadClassifier', workingFolder() + 'english.muc.7class.distsim.crf.ser.gz', '-textFile', filePathToTag, '-outputFormat', 'inlineXML', '2>', '/dev/null'])
-		tagedText = tagedText.decode('utf-8')
-		#tagedText = str(tagedText)
-		
+		tagedText = str(tagedText)
 
-		entities = []
 		INLINEXML_EPATTERN  = re.compile(r'<([A-Z]+?)>(.+?)</\1>')
 		
 		dedupDict = {}
@@ -1635,6 +1687,16 @@ def wikipediaGetExternalLinksFromPage(pageURI, maxSleepInSeconds=5):
 
 
 #misc - start
+
+def wholeWordFind(key, source):
+
+	res = re.search(r'\b' + re.escape(key) + r'\b', source)
+	if( res ):
+		return res.start()
+	else:
+		return -1
+
+
 def areAllKeysInDict(allKeys, sampleDict):
 
 	for key in allKeys:
@@ -1703,11 +1765,17 @@ def getOptValueDict(argv, optsArrayOfTups):
 def normalizeList(dataList):
 
 	if( len(dataList) == 0 ):
-		return []	
+		return dataList	
 
 	minVal = min(dataList)
 	maxVal = max(dataList)
-	dataList = [(x_i - minVal) / (maxVal - minVal) for x_i in dataList]
+	denom = maxVal - minVal
+
+	if( denom == 0 ):
+		return dataList
+
+	for i in range(len(dataList)):
+		dataList[i] = (dataList[i] - minVal) / denom
 	
 	return dataList
 #math - end
@@ -1802,7 +1870,9 @@ def quartiles(dataPoints, sortFlag=True):
 
 def fiveNumberSummary(numList):
 
-	if( len(numList) == 0 ):
+	import statistics
+
+	if( len(numList) < 2 ):
 		return {}
 
 	numList.sort()
@@ -1815,6 +1885,11 @@ def fiveNumberSummary(numList):
 	summaryStatsDict['median'] = quarts[1]
 	summaryStatsDict['upper-quartile'] = quarts[2]
 	summaryStatsDict['maximum'] = numList[-1]
+
+	summaryStatsDict['range'] = summaryStatsDict['maximum'] - summaryStatsDict['minimum']
+	summaryStatsDict['count'] = len(numList)
+	summaryStatsDict['pstdev'] = statistics.pstdev( numList )
+
 
 	return summaryStatsDict
 #summary stats - end
@@ -2691,6 +2766,33 @@ def getURIHash(uri):
 	hash_object = hashlib.md5(uri.encode())
 	return hash_object.hexdigest()
 
+def useCarbonDate(URI, excludeBacklinks=False, excludeArchives=False):
+
+	flags = []
+	allFlags = []
+
+	if( excludeBacklinks ):
+		allFlags.append('cdGetBacklinks')
+
+	if( excludeArchives ):
+		allFlags.append('cdGetArchives')
+
+	if( len(allFlags) != 0 ):
+		flags = '-e ' + ' '.join(allFlags)
+		flags = flags.split(' ')
+	
+	request = ['docker', 'run', '--rm', '-it', '-p', '8888:8888', 'oduwsdl/carbondate', './main.py', '-l', 'search', URI] + flags
+	
+	try:
+		output = check_output(request)
+		output = json.loads(output.decode('utf-8'))
+
+		return output['estimated-creation-date']
+	except:
+		genericErrorInfo()
+
+	return ''
+
 def isArchived(uri, mememtoAggregator='http://memgator.cs.odu.edu/'):
 
 	print('\n\tisArchived():')
@@ -3086,6 +3188,21 @@ class DocVect(object):
 		return lexicon
 
 	@staticmethod
+	def getTFDict(tfVector, sortedVocab):
+
+		if( len(tfVector) != len(sortedVocab) ):
+			return {}
+
+		singleTFDict = {}
+
+		for i in range( len(sortedVocab) ):
+			vocab, vocabDet = sortedVocab[i]
+			singleTFDict[vocab] = tfVector[i]
+			
+
+		return singleTFDict
+
+	@staticmethod
 	def getDocVector(document, vocabulary):
 		return [DocVect.tf(word, document) for word in vocabulary]
 
@@ -3119,6 +3236,14 @@ class DocVect(object):
 		return docTermMatrix
 
 	@staticmethod
+	def getNgram(docList, ngram, token_pattern=r'(?u)\b\w\w+\b'):
+
+		countVectorizer = CountVectorizer(stop_words='english', token_pattern=token_pattern, ngram_range=(ngram, ngram))
+		termFreqMatrix = countVectorizer.fit_transform(docList).toarray()
+		
+		return countVectorizer.vocabulary_
+
+	@staticmethod
 	def getDocTermMatrixAndVocab(docList, ngramRange=(1,1)):
 		
 		if( len(docList) == 0 ):
@@ -3131,9 +3256,6 @@ class DocVect(object):
 
 			vocab: [Julie, loves, me, more, than, Linda, Jane, likes, He, basketball, baseball]
 		'''
-
-		from sklearn.feature_extraction.text import CountVectorizer
-		from sklearn.feature_extraction.text import TfidfTransformer
 
 		count_vectorizer = CountVectorizer( min_df=1, stop_words='english', ngram_range=ngramRange )
 		term_freq_matrix = count_vectorizer.fit_transform(docList)
@@ -3159,8 +3281,22 @@ class DocVect(object):
 		return DocVect.getNormalizedTFIDFMatrix(docTermMatrix, idfMatrix)
 
 	@staticmethod
+	def getTFMatrixFromDocList(docList, ngramRange=(1,1)):
+		
+		np.set_printoptions(threshold=np.nan, linewidth=110)
+		
+		from sklearn.feature_extraction.text import CountVectorizer
+		from sklearn.feature_extraction.text import TfidfTransformer
+
+		count_vectorizer = CountVectorizer(stop_words='english', ngram_range=ngramRange)
+		term_freq_matrix = count_vectorizer.fit_transform(docList)
+
+		return term_freq_matrix.todense().tolist()
+
+	@staticmethod
 	def getNormalizedTFIDFMatrixFromDocList(docList, ngramRange=(1,1)):
 		
+		#np.set_printoptions(threshold=np.nan, linewidth=110)
 		'''
 			Preprocessing notes:
 			stopwords not removed
@@ -3179,9 +3315,11 @@ class DocVect(object):
 		from sklearn.feature_extraction.text import CountVectorizer
 		from sklearn.feature_extraction.text import TfidfTransformer
 
-		count_vectorizer = CountVectorizer(min_df=1, stop_words='english', ngram_range=ngramRange)
+		count_vectorizer = CountVectorizer(stop_words='english', ngram_range=ngramRange)
 		term_freq_matrix = count_vectorizer.fit_transform(docList)
 		
+		#print(term_freq_matrix.todense())
+
 		#debug - start
 		'''
 			print('\n\nVocabulary:', count_vectorizer.vocabulary_, '\n')
@@ -3209,6 +3347,123 @@ class DocVect(object):
 			doc_term_matrix_tfidf.append(DocVect.l2_normalizer(tf_idf_vector))
 		
 		return doc_term_matrix_tfidf
+
+	@staticmethod
+	def add0sToMainDiag(squareMat):
+		
+		row, col = squareMat.shape
+		if( row != col ):
+			return 
+		for i in range(row):
+			squareMat[i][i] = 0
+
+	@staticmethod
+	def getDiversityScore(normalizedTFIDFMatrix, simMatInput=False):
+			
+		if( len(normalizedTFIDFMatrix) == 0 ):
+			return -1
+
+		diversityScore = -1
+
+		try:
+			if( simMatInput ):
+				simMatrix = normalizedTFIDFMatrix
+			else:
+				simMatrix = DocVect.getSimOrDistMatrix(normalizedTFIDFMatrix)
+			
+			docMat = np.array(simMatrix)
+
+			row, col = docMat.shape
+			if( row != col or row < 2 ):
+				return -1
+
+			onesMat = np.ones((row, row))
+
+			#print('\ndocSim Mat:\n', docMat, '\n')
+
+			DocVect.add0sToMainDiag( docMat )
+			DocVect.add0sToMainDiag( onesMat )
+
+			#print('\nonesMat:\n', onesMat, '\n')
+
+			docMatNorm = LA.norm( docMat )
+			onesMatNorm = LA.norm( onesMat )
+
+			diversityScore = 1 - (docMatNorm/onesMatNorm)
+		except:
+			genericErrorInfo()
+
+		return diversityScore
+
+	@staticmethod
+	def getEntitySet(ent2dList, tokenizeOnlyTriple=True):
+
+		clusterSet = set()
+		for entTup in ent2dList:
+			
+			ent, entityClassUpper = entTup
+			entityClassUpper = entityClassUpper.upper()
+
+			if( tokenizeOnlyTriple == True and entityClassUpper not in ['PERSON', 'LOCATION', 'ORGANIZATION'] ):
+				#don't tokenize datetimes and percent and money
+				clusterSet.add( ent.lower() )
+			else:
+				entityTokens = ent.lower().split(' ')
+				for entityTok in entityTokens:
+					entityTok = entityTok.strip()
+					clusterSet.add( entityTok )
+
+		return clusterSet
+
+	@staticmethod
+	def weightedJaccardOverlapSim(firstSet, secondSet, jaccardWeight=0.4, overlapWeight=0.6):
+		
+		if( jaccardWeight + overlapWeight != 1 ):
+			return -1
+		
+		return (jaccardWeight * jaccardFor2Sets(firstSet, secondSet)) + (overlapWeight * overlapFor2Sets(firstSet, secondSet))
+
+	@staticmethod
+	def getColEntitySimScore(entyLinks, params={}):
+
+
+		if( 'sim-coeff' not in params ):
+			params['sim-coeff'] = 0.3
+
+		if( 'jaccard-weight' not in params ):
+			params['jaccard-weight'] = 0.4
+
+		if( 'overlap-weight' not in params ):
+			params['overlap-weight'] = 0.6
+
+
+		#consider optimizing this because sim matrix is symmetrical j,i can look up i,j
+		simMatrix = []
+
+		for i in range(0, len(entyLinks)):
+			simMatrix.append( [-1]*len(entyLinks) )
+			for j in range(0, len(entyLinks)):
+
+				sim = 0
+				if( i == j ):
+					sim = 1
+				else:
+					sim = DocVect.weightedJaccardOverlapSim(
+						entyLinks[i], 
+						entyLinks[j],
+						params['jaccard-weight'],
+						params['overlap-weight']
+					)
+					
+					if( sim >= params['sim-coeff'] ):
+						sim = 1
+					else:
+						sim = 0
+
+				simMatrix[i][j] = sim
+
+		return {'sim-matrix': simMatrix, 'sim': 1 - DocVect.getDiversityScore(simMatrix, True)}
+		
 
 	@staticmethod 
 	def getSimOrDistMatrix(matrix, matrixType='sim'):
