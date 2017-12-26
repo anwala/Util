@@ -32,7 +32,12 @@ import math
 import string
 import numpy as np
 from numpy import linalg as LA
+
+from nltk.tokenize import word_tokenize#prerequisite is single use of  nltk.download('punkt') # first-time use only
+
 from nltk.stem.porter import PorterStemmer
+from nltk.stem import WordNetLemmatizer#prerequisite is single use of nltk.download('wordnet')
+
 from sklearn.metrics import pairwise_distances
 
 from sklearn.feature_extraction.text import CountVectorizer
@@ -921,6 +926,7 @@ def nlpStartServer():
 	except:
 		genericErrorInfo()
 
+
 #iso8601Date: YYYY-MM-DDTHH:MM:SS
 def nlpGetEntitiesFromText(text, iso8601Date='', labelLst=['PERSON','LOCATION','ORGANIZATION','DATE','MONEY','PERCENT','TIME']):
 
@@ -936,7 +942,7 @@ def nlpGetEntitiesFromText(text, iso8601Date='', labelLst=['PERSON','LOCATION','
 	try:
 		output = check_output(['wget', '-q', '-O', '-', '--post-data', text, request])
 		parsed = json.loads(output.decode('utf-8'))
-		
+
 		if( 'sentences' not in parsed ):
 			return []
 
@@ -953,6 +959,54 @@ def nlpGetEntitiesFromText(text, iso8601Date='', labelLst=['PERSON','LOCATION','
 		genericErrorInfo()
 
 	return entities
+
+#iso8601Date: YYYY-MM-DDTHH:MM:SS
+def nlpGetDatesFromText(text, iso8601Date=''):
+
+	iso8601Date = iso8601Date.strip()
+	if( len(iso8601Date) != 0 ):
+		iso8601Date = ',"date":"' + iso8601Date + '"'
+
+	request = 'localhost:9000/?properties={"annotators":"entitymentions","outputFormat":"json"' + iso8601Date + '}'
+	datestimes = []
+	dedupSet = set()
+
+	try:
+		output = check_output(['wget', '-q', '-O', '-', '--post-data', text, request])
+		parsed = json.loads(output.decode('utf-8'))
+
+		if( 'sentences' not in parsed ):
+			return []
+
+		for sent in parsed['sentences']:
+			
+			if( 'entitymentions' not in sent ):
+				continue
+
+			for entity in sent['entitymentions']:
+				
+				if( 'TIME' != entity['ner'] and entity['ner']  != 'DATE' ):
+					continue
+
+				dedupKey = entity['text'] + entity['ner']
+				
+				if( dedupKey not in dedupSet ):
+					if( 'normalizedNER' in entity ):
+
+						time = entity['normalizedNER'].split('T')[0].strip()
+						
+						try:
+							datetime.strptime( time, '%Y-%m-%d' )
+							datestimes.append( time + ' 00:00:00' )
+						except:
+							pass
+
+						dedupSet.add(dedupKey)
+	except:
+		genericErrorInfo()
+
+	return datestimes
+
 
 def nlpStopServer():
 
@@ -1040,6 +1094,7 @@ def getRSentimentLabel(text):
 
 
 #file - start
+
 def writeTextToFile(outfilename, text):
 
 	try:
@@ -1086,6 +1141,9 @@ def dumpJsonToFile(outfilename, dictToWrite, indentFlag=True):
 
 #extract 863007411132649473 from 'https://twitter.com/realDonaldTrump/status/863007411132649473'
 def getTweetIDFromStatusURI(tweetURI):
+
+	if( tweetURI.startswith('https://twitter.com/') == False ):
+		return ''
 
 	tweetURI = tweetURI.strip()
 
@@ -1344,6 +1402,27 @@ def twitterGetLinksFromTweetDiv(tweetDivTag):
 
 	return expandedLinks
 
+def twitterGetTweetFromMoment(uri='', twitterHTMLPage=''):
+
+	if( len(twitterHTMLPage)==0 ):
+		twitterHTMLPage = dereferenceURI(uri)
+
+	try:
+		soup = BeautifulSoup(twitterHTMLPage, 'html.parser')
+	except:
+		genericErrorInfo()
+		return {}
+
+	moments = soup.findAll('div', {'class': 'MomentCapsuleItemTweet'})
+	tweetsDict = {}
+
+	for moment in moments:
+		tweet = twitterGetTweetIfExist(moment)
+		if( len(tweet) != 0 ):
+			tweetsDict[ tweet['data-tweet-id'] ] = tweet
+	
+	return tweetsDict
+
 def twitterGetTweetIfExist(potentialTweetDiv):
 
 	tweetDict = {};
@@ -1352,6 +1431,8 @@ def twitterGetTweetIfExist(potentialTweetDiv):
 	for attr in listOfTweetAttrs:
 		if( potentialTweetDiv.has_attr(attr) ):
 			tweetDict[attr] = potentialTweetDiv[attr]
+		else:
+			print('missing attr:', attr)
 
 	if( len(tweetDict) != len(listOfTweetAttrs) ):
 		return {}
@@ -1402,6 +1483,29 @@ def isTweetPresent(soup):
 
 	return ''
 
+def optIsURIInTweet(link, maxSleep=3):
+
+	print('\noptIsURIInTweet()')
+
+	urir = getURIRFromMemento(link)
+	if( len(urir) != 0 ):
+		print('\t\turi-r extracted from memento link, to be checked in tweet index')
+		link = urir
+
+	tweetPath = ''
+
+	for urlPrefix in ['url:', '']:
+		print('\t\turi prefix:', urlPrefix)
+		uri = 'https://twitter.com/search?f=tweets&q=' + quote_plus(urlPrefix + link) + '&src=typd'
+		htmlPage = dereferenceURI(uri, maxSleep)
+		soup = BeautifulSoup( htmlPage, 'html.parser' )
+		tweetPath = isTweetPresent(soup)
+
+		if( len(tweetPath) != 0 ):
+			break
+
+	return tweetPath
+
 def isURIInTweet(link, driver=None, closeBrowserFlag=True, chromedriverPath='/usr/bin/chromedriver'):
 
 	print('\nisURIInTweet()')
@@ -1423,7 +1527,7 @@ def isURIInTweet(link, driver=None, closeBrowserFlag=True, chromedriverPath='/us
 	for urlPrefix in ['url:', '']:
 		print('\t\turi prefix:', urlPrefix)
 		uri = 'https://twitter.com/search?f=tweets&q=' + quote_plus(urlPrefix + link) + '&src=typd'
-		htmlPage = seleniumLoadWebpage(driver, uri, waitTimeInSeconds=2, closeBrowerFlag=False)
+		htmlPage = seleniumLoadWebpage(driver, uri, waitTimeInSeconds=1, closeBrowerFlag=False)
 		soup = BeautifulSoup( htmlPage, 'html.parser' )
 		tweetPath = isTweetPresent(soup)
 
@@ -1825,7 +1929,7 @@ def getNLTKSentimentLabel(text):
 		return json.loads(output)
 	except:
 		genericErrorInfo()
-		print('\toffending text:', output, '\n')
+		#print('\toffending text:', output, '\n')
 	
 	return {}
 
@@ -2349,11 +2453,17 @@ def derefURICache(uri, cacheFolder='', lookupCache=True):
 	uriFilename = cacheFolder + getURIHash(uri) + '.html'
 
 	if( os.path.exists(uriFilename) and lookupCache ):
-		return readTextFromFile(uriFilename)
-	else:
-		html = dereferenceURI( uri, 0 )
+		html = readTextFromFile(uriFilename)
+		html = html.strip()
+		if( len(html) != 0 ):
+			return html
+	
+	html = dereferenceURI( uri, 0 )
+	html = html.strip()
+	if( len(html) != 0 ):
 		writeTextToFile(uriFilename, html)
-		return html
+	
+	return html
 
 def dereferenceURI(URI, maxSleepInSeconds=5):
 	
@@ -2465,10 +2575,10 @@ def mimicBrowser(uri, getRequestFlag=True):
 		response = ''
 
 		if( getRequestFlag ):
-			response = requests.get(uri, headers=headers, timeout=10)
+			response = requests.get(uri, headers=headers, timeout=10, verify=False)
 			return response.text
 		else:
-			response = requests.head(uri, headers=headers, timeout=10)
+			response = requests.head(uri, headers=headers, timeout=10, verify=False)
 			return response.headers
 	except:
 
@@ -2681,7 +2791,11 @@ def seleniumLoadWebpage(driver, uri, waitTimeInSeconds=10, closeBrowerFlag=True)
 		#driver.set_script_timeout(timeoutInSeconds)
 
 		driver.get(uri)
-		driver.maximize_window()
+		'''
+			this statement
+			driver.maximize_window()
+			unknown error: cannot get automation extension\nfrom unknown error
+		'''
 
 		if( waitTimeInSeconds > 0 ):
 			print('\tsleeping in seconds:', waitTimeInSeconds)
@@ -2914,7 +3028,7 @@ def getDedupKeyForURI(uri):
 
 	return ''
 
-def expanUrlSecondTry(url):
+def expanUrlSecondTry(url, curIter=0, maxIter=100):
 
 	'''
 	Attempt to get first good location. For defunct urls with previous past
@@ -2925,6 +3039,10 @@ def expanUrlSecondTry(url):
 		return ''
 
 	print('expanUrlSecondTry(): url - ', url)
+
+	if( curIter>maxIter ):
+		return url
+
 
 	try:
 
@@ -2943,7 +3061,7 @@ def expanUrlSecondTry(url):
 			redirectUrl = output[indexOfLocation:indexOfNewLineAfterLocation]
 			redirectUrl = redirectUrl.split(' ')[1]
 
-			return expanUrlSecondTry(redirectUrl)
+			return expanUrlSecondTry(redirectUrl, curIter+1, maxIter)
 		else:
 			return url
 
@@ -2956,7 +3074,7 @@ def expanUrlSecondTry(url):
 
 def expandUrl(url, secondTryFlag=True, timeoutInSeconds='10'):
 
-	print('\tgenericCommon.py - expandUrl():', url)
+	#print('\tgenericCommon.py - expandUrl():', url)
 	#http://tmblr.co/ZPYSkm1jl_mGt, http://bit.ly/1OLMlIF
 	timeoutInSeconds = str(timeoutInSeconds)
 	'''
@@ -3280,21 +3398,59 @@ class DocVect(object):
 
 		return DocVect.getNormalizedTFIDFMatrix(docTermMatrix, idfMatrix)
 
+	#credit: https://sites.temple.edu/tudsc/2017/03/30/measuring-similarity-between-texts-in-python/ - start
 	@staticmethod
-	def getTFMatrixFromDocList(docList, ngramRange=(1,1)):
+	def stemTokens(tokens):
+		stemmer = PorterStemmer()
+		return [stemmer.stem(token) for token in tokens]
+
+	@staticmethod
+	def stemNormalize(text):
+		
+		remove_punct_dict = dict((ord(punct), None) for punct in string.punctuation)
+		text = text.lower()
+		text = text.translate(remove_punct_dict)
+		text = word_tokenize(text)
+		
+		return DocVect.stemTokens(text)
+
+	@staticmethod
+	def lemTokens(tokens):
+		lemmer = WordNetLemmatizer()
+		return [lemmer.lemmatize(token) for token in tokens]
+
+	@staticmethod
+	def lemNormalize(text):
+		remove_punct_dict = dict((ord(punct), None) for punct in string.punctuation)
+		
+		text = text.lower().translate(remove_punct_dict)
+		text = word_tokenize(text)
+
+		return DocVect.lemTokens(text)
+
+	#credit: https://sites.temple.edu/tudsc/2017/03/30/measuring-similarity-between-texts-in-python/ - end
+
+	@staticmethod
+	def getTFMatrixFromDocList(docList, normalize=False, ngramRange=(1,1), tokenizer=None):
 		
 		np.set_printoptions(threshold=np.nan, linewidth=110)
-		
 		from sklearn.feature_extraction.text import CountVectorizer
 		from sklearn.feature_extraction.text import TfidfTransformer
 
-		count_vectorizer = CountVectorizer(stop_words='english', ngram_range=ngramRange)
+		count_vectorizer = CountVectorizer(tokenizer=tokenizer, stop_words='english', ngram_range=ngramRange)
 		term_freq_matrix = count_vectorizer.fit_transform(docList)
+		
+		if( normalize ):
+			tfidf = TfidfTransformer(norm='l2')
+			tfidf.fit(term_freq_matrix)
 
-		return term_freq_matrix.todense().tolist()
+			tf_idf_matrix = tfidf.transform(term_freq_matrix)
+			return tf_idf_matrix.todense().tolist()
+		else:
+			return term_freq_matrix.todense().tolist()
 
 	@staticmethod
-	def getNormalizedTFIDFMatrixFromDocList(docList, ngramRange=(1,1)):
+	def getNormalizedTFIDFMatrixFromDocList(docList, ngramRange=(1,1), tokenizer=None):
 		
 		#np.set_printoptions(threshold=np.nan, linewidth=110)
 		'''
@@ -3357,13 +3513,15 @@ class DocVect(object):
 		for i in range(row):
 			squareMat[i][i] = 0
 
+
+
 	@staticmethod
-	def getDiversityScore(normalizedTFIDFMatrix, simMatInput=False):
+	def getColSimScore(normalizedTFIDFMatrix, simMatInput=False):
 			
 		if( len(normalizedTFIDFMatrix) == 0 ):
 			return -1
 
-		diversityScore = -1
+		similarityScore = -1
 
 		try:
 			if( simMatInput ):
@@ -3389,46 +3547,18 @@ class DocVect(object):
 			docMatNorm = LA.norm( docMat )
 			onesMatNorm = LA.norm( onesMat )
 
-			diversityScore = 1 - (docMatNorm/onesMatNorm)
+			similarityScore = docMatNorm/onesMatNorm
 		except:
 			genericErrorInfo()
 
-		return diversityScore
-
-	@staticmethod
-	def getEntitySet(ent2dList, tokenizeOnlyTriple=True):
-
-		clusterSet = set()
-		for entTup in ent2dList:
-			
-			ent, entityClassUpper = entTup
-			entityClassUpper = entityClassUpper.upper()
-
-			if( tokenizeOnlyTriple == True and entityClassUpper not in ['PERSON', 'LOCATION', 'ORGANIZATION'] ):
-				#don't tokenize datetimes and percent and money
-				clusterSet.add( ent.lower() )
-			else:
-				entityTokens = ent.lower().split(' ')
-				for entityTok in entityTokens:
-					entityTok = entityTok.strip()
-					clusterSet.add( entityTok )
-
-		return clusterSet
-
-	@staticmethod
-	def weightedJaccardOverlapSim(firstSet, secondSet, jaccardWeight=0.4, overlapWeight=0.6):
-		
-		if( jaccardWeight + overlapWeight != 1 ):
-			return -1
-		
-		return (jaccardWeight * jaccardFor2Sets(firstSet, secondSet)) + (overlapWeight * overlapFor2Sets(firstSet, secondSet))
+		return similarityScore
 
 	@staticmethod
 	def getColEntitySimScore(entyLinks, params={}):
 
-
 		if( 'sim-coeff' not in params ):
-			params['sim-coeff'] = 0.3
+			#params['sim-coeff'] = 0.3
+			params['sim-coeff'] = 0.27
 
 		if( 'jaccard-weight' not in params ):
 			params['jaccard-weight'] = 0.4
@@ -3462,8 +3592,39 @@ class DocVect(object):
 
 				simMatrix[i][j] = sim
 
-		return {'sim-matrix': simMatrix, 'sim': 1 - DocVect.getDiversityScore(simMatrix, True)}
+		return DocVect.getColSimScore(simMatrix, True)
+
+
+
+	@staticmethod
+	def getEntitySet(ent2dList, tokenizeOnlyTriple=True):
+		#tokenizeOnlyTriple is a misnomer, 'MISC' class was added later
 		
+		clusterSet = set()
+		for entTup in ent2dList:
+			
+			ent, entityClassUpper = entTup
+			entityClassUpper = entityClassUpper.upper()
+
+			if( tokenizeOnlyTriple == True and entityClassUpper not in ['PERSON', 'LOCATION', 'ORGANIZATION', 'MISC'] ):
+				#don't tokenize datetimes and percent and money
+				clusterSet.add( ent.lower() )
+			else:
+				entityTokens = ent.lower().split(' ')
+				for entityTok in entityTokens:
+					entityTok = entityTok.strip()
+					clusterSet.add( entityTok )
+
+		return clusterSet
+
+	@staticmethod
+	def weightedJaccardOverlapSim(firstSet, secondSet, jaccardWeight=0.4, overlapWeight=0.6):
+		
+		if( jaccardWeight + overlapWeight != 1 ):
+			return -1
+		
+		return (jaccardWeight * jaccardFor2Sets(firstSet, secondSet)) + (overlapWeight * overlapFor2Sets(firstSet, secondSet))
+
 
 	@staticmethod 
 	def getSimOrDistMatrix(matrix, matrixType='sim'):
