@@ -212,6 +212,44 @@ def intTryParse(value):
 #command line params - end
 
 #url - start
+
+def sendToWebArchive(url):
+
+	url = url.strip()
+	if( len(url) == 0 ):
+		return False
+
+	goodResponseFlagArchive0 = True
+	headers = getCustomHeaderDict()
+
+	try:
+		response = requests.get('http://web.archive.org/save/' + url, headers=headers, timeout=10)
+	except:
+		goodResponseFlagArchive0 = False
+		genericErrorInfo()
+
+
+	return goodResponseFlagArchive0
+
+def sendToArchiveIs(url):
+
+	url = url.strip()
+	if( len(url) == 0 ):
+		return False
+
+	goodResponseFlagArchive1 = True
+	headers = getCustomHeaderDict()
+	try:
+		r = requests.post('https://archive.is/submit/', headers=headers, data={'url': url})
+		if( r.status_code > 300 ):
+			goodResponseFlagArchive1 = False
+
+	except:
+		goodResponseFlagArchive1 = False
+		genericErrorInfo()
+
+	return goodResponseFlagArchive1
+
 def isURISocialMedia(uri):
 
 	uri = uri.strip()
@@ -856,11 +894,7 @@ def isExclusivePunct(text):
 
 	text = text.strip()
 	for char in text:
-		char = char.upper()
-		
-		if( len(char) != 1 ):
-			return char.isalpha()
-		elif ord(char) >= 65 and ord(char) <= 90:
+		if char not in string.punctuation:
 			return False
 
 	return True
@@ -931,7 +965,13 @@ def nlpStartServer():
 
 
 #iso8601Date: YYYY-MM-DDTHH:MM:SS
-def nlpGetEntitiesFromText(text, iso8601Date='', labelLst=['PERSON','LOCATION','ORGANIZATION','DATE','MONEY','PERCENT','TIME']):
+def nlpGetEntitiesFromText(text, iso8601Date='', labelLst=['PERSON','LOCATION','ORGANIZATION','DATE','MONEY','PERCENT','TIME'], params={}):
+
+	#set params - start
+	if( 'normalizedTimeNER' not in params ):
+		params['normalizedTimeNER'] = False
+	#set params - start
+
 
 	labelLst = set(labelLst)
 	iso8601Date = iso8601Date.strip()
@@ -945,19 +985,38 @@ def nlpGetEntitiesFromText(text, iso8601Date='', labelLst=['PERSON','LOCATION','
 	try:
 		output = check_output(['wget', '-q', '-O', '-', '--post-data', text, request])
 		parsed = json.loads(output.decode('utf-8'))
+		#dumpJsonToFile( 'output.json', parsed )
 
 		if( 'sentences' not in parsed ):
 			return []
 
 		for sent in parsed['sentences']:
-			if( 'entitymentions' in sent ):
-				for entity in sent['entitymentions']:
+			
+			if( 'entitymentions' not in sent ):
+				continue
 
-					dedupKey = entity['text'] + entity['ner']
+			for entity in sent['entitymentions']:
+
+				#text is entity, ner is entity class
+				dedupKey = entity['text'] + entity['ner']
+				
+				if( dedupKey in dedupSet or entity['ner'] not in labelLst ):
+					continue
 					
-					if( dedupKey not in dedupSet and entity['ner'] in labelLst ):
-						entities.append( [entity['text'], entity['ner']] )
-						dedupSet.add(dedupKey)
+				#debug - start
+				if( entity['ner'] == 'DATE' or entity['ner'] == 'TIME' ):
+					if( params['normalizedTimeNER'] and 'normalizedNER' in entity ):
+						#attempt to parse date
+						parsedDate = genericParseDate( entity['normalizedNER'][:10] )
+						if( parsedDate is not None ):
+							entity['text'] = parsedDate.isoformat()[:19]
+						else:
+							entity['text'] = ''
+				#debug - end
+
+				if( len(entity['text']) != 0 ):
+					entities.append( [entity['text'], entity['ner']] )
+					dedupSet.add(dedupKey)
 	except:
 		genericErrorInfo()
 
@@ -1795,6 +1854,22 @@ def wikipediaGetExternalLinksFromPage(pageURI, maxSleepInSeconds=5):
 
 #misc - start
 
+def genericParseDate(dateStr):
+	from dateutil.parser import parse
+	
+	dateStr = dateStr.strip()
+	if( len(dateStr) == 0 ):
+		return None
+
+	try:
+		dateObj = parse(dateStr)
+		return dateObj
+	except:
+		#genericErrorInfo()
+		pass
+
+	return None
+
 def wholeWordFind(key, source):
 
 	res = re.search(r'\b' + re.escape(key) + r'\b', source)
@@ -2174,6 +2249,63 @@ def googleGetHTMLPage(searchString, page, siteDirective='', seleniumFlag=False):
 	return googleHTMLPage
 
 #scraper
+def getPayloadDetails(title, crawlDatetime, snippet, rank, page, custom={}):
+	return {
+		'title': title, 
+		'crawl-datetime': crawlDatetime, 
+		'snippet': snippet, 
+		'rank': rank,
+		'page': page,
+		'custom': custom
+	}
+
+def addMoreLinks(elm, rank, payload, page):
+	
+	moreLinks = elm.findAll('a')
+	subrank = 1
+
+	for moreLink in moreLinks:
+
+		domain = ''
+		if( moreLink.has_attr('href') ):
+			domain = getDomain( moreLink['href'] )
+		
+		if( domain.find('google.com') != -1 or domain.find('googleusercontent.com') != -1 ):
+			#skip empty and google links
+			continue
+		
+		link = ''
+		if( moreLink.has_attr('data-href') ):
+			link = moreLink['data-href']
+		elif( moreLink.has_attr('href') ):
+			link = moreLink['href']
+
+		if( link in payload or len(link) == 0 ):
+			continue
+		
+		if( link.find('http') != 0 ):
+			continue
+
+		title = moreLink.text.strip()
+		if( len(title) != 0 ):
+			locRank = str(rank) + '.' + str(subrank)
+			
+			#print('\t\tlink:', link)
+			#print('\t\t\t', title)
+			
+			custom = {'extra-link': True}
+			payload[link] = getPayloadDetails(
+				title=title, 
+				crawlDatetime='', 
+				snippet='', 
+				rank=float(locRank),
+				page=page,
+				custom=custom
+			)
+			
+			subrank += 1
+
+
 def googleRetrieveLinksFromPage(googleHTMLSoup, rankAdditiveFactor=0, page=1):
 
 	if( len(googleHTMLSoup) ==  0 ):
@@ -2198,6 +2330,8 @@ def googleRetrieveLinksFromPage(googleHTMLSoup, rankAdditiveFactor=0, page=1):
 		for resultInstance in liOrDiv:
 
 			if( resultInstance.h3 == None ):
+				#attempt to get more links
+				addMoreLinks(resultInstance, rank, linksDict, page)
 				continue
 
 			crawlDateTime = resultInstance.find('span', {'class':'f'})
@@ -2238,10 +2372,15 @@ def googleRetrieveLinksFromPage(googleHTMLSoup, rankAdditiveFactor=0, page=1):
 					crawlDateTime = str(datetime.now()).split('.')[0].replace(' ', 'T')
 
 			title = resultInstance.h3.a.text
-			#title = title.encode('ascii', 'ignore')
-
 			titleLink = resultInstance.h3.a['href']
 			titleLink = titleLink.strip()
+
+			if( titleLink.find('http') != 0 ):
+				continue
+
+
+			#attempt to get more links
+			addMoreLinks(resultInstance, rank, linksDict, page)
 
 			'''
 			linksDict format:
@@ -2250,10 +2389,17 @@ def googleRetrieveLinksFromPage(googleHTMLSoup, rankAdditiveFactor=0, page=1):
 				...
 			}
 			'''
-			#when signature changes change getListOfDict()
-			rank += 1
-			linksDict[titleLink] = {'title': title, 'crawl-datetime': crawlDateTime, 'snippet': snippet, 'rank': rank+rankAdditiveFactor, 'page': page}
 			
+			rank += 1
+			linksDict[titleLink] = getPayloadDetails(
+				title=title, 
+				crawlDatetime=crawlDateTime, 
+				snippet=snippet, 
+				rank=rank+rankAdditiveFactor,
+				page=page
+			)
+		#attempt to add even more links
+		addMoreLinks(result, rank, linksDict, page)
 
 	return linksDict
 
@@ -2578,10 +2724,10 @@ def mimicBrowser(uri, getRequestFlag=True):
 		response = ''
 
 		if( getRequestFlag ):
-			response = requests.get(uri, headers=headers, timeout=10, verify=False)
+			response = requests.get(uri, headers=headers, timeout=10)#, verify=False
 			return response.text
 		else:
-			response = requests.head(uri, headers=headers, timeout=10, verify=False)
+			response = requests.head(uri, headers=headers, timeout=10)#, verify=False
 			return response.headers
 	except:
 
@@ -2704,6 +2850,9 @@ def phantomJSGetHTML(uri):
 
 
 #uri - start
+
+def isSameLinks(left, right):
+	return getDedupKeyForURI(left) == getDedupKeyForURI(right)
 
 def isURIShort(uri):
 
@@ -3434,23 +3583,67 @@ class DocVect(object):
 	#credit: https://sites.temple.edu/tudsc/2017/03/30/measuring-similarity-between-texts-in-python/ - end
 
 	@staticmethod
-	def getTFMatrixFromDocList(docList, normalize=False, ngramRange=(1,1), tokenizer=None):
-		
-		np.set_printoptions(threshold=np.nan, linewidth=110)
+	def getTFMatrixFromDocList(oldDocList, params={}):
+
+		if( len(oldDocList) == 0 ):
+			return []
+
+		docList = []
+		#remove empty documents
+		for i in range(len(oldDocList)):
+			if( len(oldDocList[i]) != 0 ):
+				docList.append( oldDocList[i] )
+
+		if( len(docList) == 0 ):
+			return []
+
+
+		if( 'IDF' not in params ):
+			params['IDF'] = {'active': False, 'norm': None}
+
+		if( 'active' not in params['IDF'] ):
+			params['IDF']['active'] = False
+
+		if( 'norm' not in params['IDF'] ):
+			params['IDF']['norm'] = None#see TfidfTransformer for options
+
+		if( 'normalize' not in params ):
+			#normalize TF by vector norm (L2 norm)
+			params['normalize'] = False
+
+		if( 'ngram-range' not in params ):
+			params['ngram-range'] = (1, 1)
+
+		if( 'tokenizer' not in params ):
+			params['tokenizer'] = None
+
+				
+		np.set_printoptions(threshold=np.nan, linewidth=100)
 		from sklearn.feature_extraction.text import CountVectorizer
 		from sklearn.feature_extraction.text import TfidfTransformer
+		from sklearn.preprocessing import normalize
 
-		count_vectorizer = CountVectorizer(tokenizer=tokenizer, stop_words='english', ngram_range=ngramRange)
+		count_vectorizer = CountVectorizer(tokenizer=params['tokenizer'], stop_words='english', ngram_range=params['ngram-range'])
 		term_freq_matrix = count_vectorizer.fit_transform(docList)
-		
-		if( normalize ):
-			tfidf = TfidfTransformer(norm='l2')
+		sortedVocab = sorted(count_vectorizer.vocabulary_.items(), key=lambda x: x[1])
+		#print('vocab:', sortedVocab)
+
+		if( params['IDF']['active'] ):
+			tfidf = TfidfTransformer( norm=params['IDF']['norm'] )
 			tfidf.fit(term_freq_matrix)
 
 			tf_idf_matrix = tfidf.transform(term_freq_matrix)
-			return tf_idf_matrix.todense().tolist()
-		else:
-			return term_freq_matrix.todense().tolist()
+			dense = tf_idf_matrix.todense()
+		else:			
+			
+			if( params['normalize'] ):
+				matNormalized = normalize(term_freq_matrix, norm='l2', axis=1)
+				dense = matNormalized.todense()
+			else:
+				dense = term_freq_matrix.todense()
+		
+		print(dense)
+		return dense.tolist()
 
 	@staticmethod
 	def getNormalizedTFIDFMatrixFromDocList(docList, ngramRange=(1,1), tokenizer=None):
