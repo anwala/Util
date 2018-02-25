@@ -857,7 +857,10 @@ def isExclusivePunct(text):
 	text = text.strip()
 	for char in text:
 		char = char.upper()
-		if ord(char) >= 65 and ord(char) <= 90:
+		
+		if( len(char) != 1 ):
+			return char.isalpha()
+		elif ord(char) >= 65 and ord(char) <= 90:
 			return False
 
 	return True
