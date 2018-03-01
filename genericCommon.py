@@ -950,7 +950,51 @@ def avgReadabilityGrade(text):
 
 	return avgGrade/3
 
-def nlpStartServer():
+def nlpIsServerOn():
+
+	try:
+		response = requests.head('http://localhost:9000/')
+		
+		if( response.status_code == 200 ):
+			return True
+		else:
+			return False
+
+	except:
+		genericErrorInfo()
+
+	return False
+
+def nlpServerStartStop(msg):
+
+	if( msg == 'start' ):
+		try:
+			if( nlpIsServerOn() == False ):
+				#docker run --rm -d -p 9000:9000 --name stanfordcorenlp anwala/stanfordcorenlp
+				check_output([
+					'docker', 
+					'run', 
+					'--rm', 
+					'-d', 
+					'-p', 
+					'9000:9000', 
+					'--name',
+					'stanfordcorenlp',
+					'anwala/stanfordcorenlp'
+				])
+
+				#warm up server (preload libraries, so subsequent responses are quicker)
+				nlpGetEntitiesFromText('A quick brown fox jumped over the lazy dog')
+		except:
+			genericErrorInfo()
+	elif( msg == 'stop' ):
+		try:
+			check_output(['docker', 'rm', '-f', 'stanfordcorenlp'])
+		except:
+			genericErrorInfo()
+
+
+def nlpStartServer_obsolete():
 	
 	try:
 
@@ -960,6 +1004,13 @@ def nlpStartServer():
 		time.sleep(2)
 		text = 'The quick brown fox jumped over the lazy dog.'
 		Popen(['wget', '-q', '-O', '-', '--post-data', text, 'localhost:9000/?properties={"annotators":"entitymentions","outputFormat":"json","date":"2017-11-04T19:03:47"}'])
+	except:
+		genericErrorInfo()
+
+def nlpStopServer_obsolete():
+
+	try:
+		check_output(['docker', 'rm', '-f', 'corenlpCon'])
 	except:
 		genericErrorInfo()
 
@@ -1068,14 +1119,6 @@ def nlpGetDatesFromText(text, iso8601Date=''):
 		genericErrorInfo()
 
 	return datestimes
-
-
-def nlpStopServer():
-
-	try:
-		check_output(['docker', 'rm', '-f', 'corenlpCon'])
-	except:
-		genericErrorInfo()
 
 
 def getEntitiesFromText(plaintext, outfilename='tempNERTextToTag.txt'):
