@@ -950,10 +950,10 @@ def avgReadabilityGrade(text):
 
 	return avgGrade/3
 
-def nlpIsServerOn():
+def nlpIsServerOn(host='localhost'):
 
 	try:
-		response = requests.head('http://localhost:9000/')
+		response = requests.head('http://' + host +':9000/')
 		
 		if( response.status_code == 200 ):
 			return True
