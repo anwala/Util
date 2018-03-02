@@ -965,7 +965,7 @@ def nlpIsServerOn():
 
 	return False
 
-def nlpServerStartStop(msg):
+def nlpServerStartStop(msg='start'):
 
 	if( msg == 'start' ):
 		try:
@@ -1016,7 +1016,7 @@ def nlpStopServer_obsolete():
 
 
 #iso8601Date: YYYY-MM-DDTHH:MM:SS
-def nlpGetEntitiesFromText(text, iso8601Date='', labelLst=['PERSON','LOCATION','ORGANIZATION','DATE','MONEY','PERCENT','TIME'], params={}):
+def nlpGetEntitiesFromText(text, host='localhost', iso8601Date='', labelLst=['PERSON','LOCATION','ORGANIZATION','DATE','MONEY','PERCENT','TIME'], params={}):
 
 	#set params - start
 	if( 'normalizedTimeNER' not in params ):
@@ -1029,7 +1029,7 @@ def nlpGetEntitiesFromText(text, iso8601Date='', labelLst=['PERSON','LOCATION','
 	if( len(iso8601Date) != 0 ):
 		iso8601Date = ',"date":"' + iso8601Date + '"'
 
-	request = 'localhost:9000/?properties={"annotators":"entitymentions","outputFormat":"json"' + iso8601Date + '}'
+	request = host + ':9000/?properties={"annotators":"entitymentions","outputFormat":"json"' + iso8601Date + '}'
 	entities = []
 	dedupSet = set()
 
