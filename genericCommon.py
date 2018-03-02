@@ -1018,10 +1018,10 @@ def nlpStopServer_obsolete():
 #iso8601Date: YYYY-MM-DDTHH:MM:SS
 def nlpGetEntitiesFromText(text, host='localhost', iso8601Date='', labelLst=['PERSON','LOCATION','ORGANIZATION','DATE','MONEY','PERCENT','TIME'], params={}):
 
-	#set params - start
+	#set default params - start
 	if( 'normalizedTimeNER' not in params ):
 		params['normalizedTimeNER'] = False
-	#set params - start
+	#set default params - start
 
 
 	labelLst = set(labelLst)
