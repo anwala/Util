@@ -6,12 +6,14 @@ import json
 import hashlib
 import requests
 import operator
+import gzip
 import os, sys, getopt
 
 from bs4 import BeautifulSoup
 from datetime import datetime
 
 from subprocess import Popen
+from multiprocessing import Pool
 from subprocess import check_output
 
 from functools import reduce
@@ -213,6 +215,143 @@ def intTryParse(value):
 
 #url - start
 
+def getTopKDomainStats(uris, k):
+
+	domainDict = {}
+	linkCount = len(uris)
+
+	for uri in uris:
+		domain = getDomain( uri )
+		domainDict.setdefault(domain, 0)
+		domainDict[domain] += 1
+
+
+	if( len(domainDict) == 0 or k == 0 or linkCount == 0 ):
+		return {}
+
+	sortedTopKDomains = sorted( domainDict.items(), key=lambda x: x[1], reverse=True )
+	sortedTopKDomains = sortedTopKDomains[:k]
+
+	topKDomLinkCount = 0
+	for i in range(len(sortedTopKDomains)):
+		domain, domainCount = sortedTopKDomains[i]
+		topKDomLinkCount += domainCount
+
+	return {
+		'link-count-aka-col-count': linkCount,
+		'top-' + str(k) + '-domain-link-count': topKDomLinkCount,
+		'frac-of-col': topKDomLinkCount/linkCount,
+		'top-' + str(k) + '-domains': sortedTopKDomains
+	}
+
+def getURIEstCreationDate(uri, html='', verbose=True, cdPort='7777'):
+
+	if( verbose ):
+		print('getURIEstCreationDate():')
+
+	if( len(html) == 0 ):
+		html = dereferenceURI(uri, 0)
+
+	creationDate = ''
+
+	if( len(html) == 0 ):
+		if( verbose ):
+			print('\tuseCarbonDate():', uri)
+
+		creationDate = useCarbonDate( uri, excludeBacklinks=True, excludeArchives=False, port=cdPort )
+		creationDate = creationDate.replace('T', ' ')
+	else:
+		if( uri.startswith('https://twitter.com') ):
+			
+			if( verbose ):
+				print('\tgetTweetPubDate():', uri)
+			
+			creationDate = getTweetPubDate(uri, html)
+		elif( getUriDepth(uri) != 0 ):#not a homepage
+			if( verbose ):
+				print('\tgetArticlePubDate():', uri)
+
+			creationDate = getArticlePubDate(uri=uri, html=html)
+
+	if( len(creationDate) == 0 ):
+		if( verbose ):
+			print('\tlast try useCarbonDate():', uri)
+
+		creationDate = useCarbonDate( uri, excludeBacklinks=True, excludeArchives=False, port=cdPort )
+		creationDate = creationDate.replace('T', ' ')
+	
+	return creationDate
+
+def getHostname(url, includeSubdomain=True):
+
+	url = url.strip()
+	if( len(url) == 0 ):
+		return ''
+
+	if( url.find('http') == -1  ):
+		url = 'http://' + url
+
+	domain = ''
+	
+	try:
+		ext = extract(url)
+		
+		domain = ext.domain.strip()
+		subdomain = ext.subdomain.strip()
+		suffix = ext.suffix.strip()
+		
+		if( len(suffix) != 0 ):
+			suffix = '.' + suffix 
+
+		if( len(domain) != 0 ):
+			domain = domain + suffix
+
+		if( len(subdomain) != 0 ):
+			subdomain = subdomain + '.'
+
+		if( includeSubdomain ):
+			domain = subdomain + domain
+	except:
+		genericErrorInfo()
+		return ''
+
+	return domain
+
+def wsdlDiversityIndex(uriLst):
+	diversityPerPolicy = {'uri-diversity': set(), 'hostname-diversity': set(), 'domain-diversity': set()}
+	
+	if( len(uriLst) == 0 ):
+		return {}
+
+	if( len(uriLst) == 1 ):
+		for policy in diversityPerPolicy:
+			diversityPerPolicy[policy] = 0
+		return diversityPerPolicy
+
+	for uri in uriLst:
+
+		uriCanon = getDedupKeyForURI(uri)
+		if( len(uriCanon) != 0 ):
+			#get unique uris
+			diversityPerPolicy['uri-diversity'].add( uriCanon )						
+		
+		hostname = getHostname(uri)
+		if( len(hostname) != 0 ):
+			#get unique hostname
+			diversityPerPolicy['hostname-diversity'].add( hostname )					
+
+		domain = getHostname(uri, includeSubdomain=False)
+		if( len(domain) != 0 ):
+			#get unique domain	
+			diversityPerPolicy['domain-diversity'].add( domain )
+	
+	for policy in diversityPerPolicy:
+		U = len(diversityPerPolicy[policy])
+		N = len(uriLst)
+		diversityPerPolicy[policy] = (U - 1)/(N - 1)
+
+	return diversityPerPolicy
+
 def sendToWebArchive(url):
 
 	url = url.strip()
@@ -347,6 +486,14 @@ def haversine(point1, point2, miles=True):
 		return h * 0.621371  # in miles
 	else:
 		return h  # in kilometers
+
+def getFolderSize(folder):
+	
+	try:
+		return check_output(['du','-sh', folder]).split()[0].decode('utf-8')
+	except:
+		genericErrorInfo()
+		return ''
 
 def workingFolder():
 	return dirname(abspath(__file__)) + '/'
@@ -861,13 +1008,24 @@ def getArticlePubDate(uri, html):
 	if( article.publish_date is None ):
 		return ''
 	else:
-		pubdate = article.publish_date
-		return str(pubdate.date()) + ' ' + str(pubdate.time())
+
+		try:
+			pubdate = article.publish_date
+			return str(pubdate.date()) + ' ' + str(pubdate.time())
+		except:
+			genericErrorInfo()
+
+	return ''
 
 #html - end
 
 
 #text - start
+
+def getHashForText(text):
+	hash_object = hashlib.md5( text.encode() )
+	return hash_object.hexdigest()
+
 def getStrBetweenMarkers(inputStr, beginMarker, endMarker, startIndex=0):
 
 	begIndex = inputStr.find(beginMarker, startIndex)
@@ -1200,6 +1358,26 @@ def getRSentimentLabel(text):
 
 #file - start
 
+def getDictFromJsonGZ(path):
+
+	json = getTextFromGZ(path)
+	if( len(json) == 0 ):
+		return {}
+	return getDictFromJson(json)
+
+def getTextFromGZ(path):
+	
+	try:
+		infile = gzip.open(path, 'rb')
+		txt = infile.read().decode('utf-8')
+		infile.close()
+
+		return txt
+	except:
+		genericErrorInfo()
+
+	return ''
+
 def writeTextToFile(outfilename, text):
 
 	try:
@@ -1224,7 +1402,10 @@ def readTextFromFile(infilename):
 
 	return text
 
-def dumpJsonToFile(outfilename, dictToWrite, indentFlag=True):
+def dumpJsonToFile(outfilename, dictToWrite, indentFlag=True, extraParams={}):
+
+	if( 'verbose' not in extraParams ):
+		extraParams['verbose'] = True
 
 	try:
 		outfile = open(outfilename, 'w')
@@ -1236,9 +1417,11 @@ def dumpJsonToFile(outfilename, dictToWrite, indentFlag=True):
 
 		outfile.close()
 
-		print('\twriteTextToFile(), wrote:', outfilename)
+		if( extraParams['verbose'] ):
+			print('\twriteTextToFile(), wrote:', outfilename)
 	except:
-		print('\terror: outfilename:', outfilename)
+		if( extraParams['verbose'] ):
+			print('\terror: outfilename:', outfilename)
 		genericErrorInfo()
 #file - end
 
@@ -1506,6 +1689,24 @@ def twitterGetLinksFromTweetDiv(tweetDivTag):
 	#grab expanded links from adaptive media - end
 
 	return expandedLinks
+
+def getTweetPubDate(tweetURI, tweetHtml):
+
+	tweetID = getTweetIDFromStatusURI(tweetURI)
+	if( len(tweetID) == 0 ):
+		return ''
+
+	tweetDate = ''
+	tweetDict = twitterGetDescendants(tweetHtml)
+	
+	if( tweetID in tweetDict ):
+		try:
+			tweetDate = tweetDict[tweetID]['tweet-time'].split(' - ')[-1].strip()
+			tweetDate = str(datetime.strptime(tweetDate, '%d %b %Y'))
+		except:
+			genericErrorInfo()
+
+	return tweetDate
 
 def twitterGetTweetFromMoment(uri='', twitterHTMLPage=''):
 
@@ -1897,6 +2098,45 @@ def wikipediaGetExternalLinksFromPage(pageURI, maxSleepInSeconds=5):
 
 #misc - start
 
+def parallelProxy(job):
+	return {'input': job, 'output': job['func'](**job['args'])}
+
+'''
+	jobsLst: {
+				'func': function,
+				'args': {functionArgName0: val0,... functionArgNamen: valn}  
+			 }
+	
+	usage example:
+	jobsLst = []
+	keywords = {'uri': 'http://www.odu.edu'}
+	jobsLst.append( {'func': getDedupKeyForURI, 'args': keywords} )
+
+	keywords = {'uri': 'http://www.cnn.com'}
+	jobsLst.append( {'func': getDedupKeyForURI, 'args': keywords} )
+
+	keywords = {'uri': 'http://www.arsenal.com'}
+	jobsLst.append( {'func': getDedupKeyForURI, 'args': keywords} )
+
+	print( parallelTask(jobsLst) )
+'''
+def parallelTask(jobsLst, threadCount=5):
+
+	if( threadCount < 2 ):
+		threadCount = 2
+
+	try:
+		workers = Pool(threadCount)
+		resLst = workers.map(parallelProxy, jobsLst)
+
+		workers.close()
+		workers.join()
+	except:
+		genericErrorInfo()
+		return []
+
+	return resLst
+
 def genericParseDate(dateStr):
 	from dateutil.parser import parse
 	
@@ -2111,6 +2351,7 @@ def fiveNumberSummary(numList):
 	summaryStatsDict['upper-quartile'] = quarts[2]
 	summaryStatsDict['maximum'] = numList[-1]
 
+	summaryStatsDict['mean'] = statistics.mean(numList)
 	summaryStatsDict['range'] = summaryStatsDict['maximum'] - summaryStatsDict['minimum']
 	summaryStatsDict['count'] = len(numList)
 	summaryStatsDict['pstdev'] = statistics.pstdev( numList )
@@ -2571,7 +2812,7 @@ def getListOfDict(linksDict):
 
 #google - end
 
-def getLinks(uri='', html='', commaDelDomainsToExclude='', fromMainTextFlag=True):
+def getLinks(uri='', html='', commaDelDomainsToExclude='', fromMainTextFlag=True, extraParams={}):
 
 	'''
 	uri = uri.strip()
@@ -2584,6 +2825,10 @@ def getLinks(uri='', html='', commaDelDomainsToExclude='', fromMainTextFlag=True
 		if( uri[-1] != '/' ):
 			uri = uri + '/'
 
+	sleepSeconds = 3
+	if( 'sleepSeconds' in extraParams ):
+		sleepSeconds = extraParams['sleepSeconds']
+
 	domainsToExcludeDict = {}
 	for domain in commaDelDomainsToExclude.split(','):
 		domain = domain.strip()
@@ -2593,7 +2838,8 @@ def getLinks(uri='', html='', commaDelDomainsToExclude='', fromMainTextFlag=True
 	dedupDict = {}
 	try:
 		if( len(html) == 0 ):
-			html = dereferenceURI(uri)
+
+			html = dereferenceURI(uri, sleepSeconds)
 		
 		if( fromMainTextFlag ):
 			extractor = Extractor(extractor='ArticleExtractor', html=html)
@@ -2771,6 +3017,7 @@ def mimicBrowser(uri, getRequestFlag=True):
 			return response.text
 		else:
 			response = requests.head(uri, headers=headers, timeout=10)#, verify=False
+			response.headers['status-code'] = response.status_code
 			return response.headers
 	except:
 
@@ -2814,12 +3061,43 @@ def getUriDepth(uri):
 	if( len(uri) == 0 ):
 		return -1
 
+	#credit for list: https://support.tigertech.net/index-file-names
+	defaultIndexNames = [
+		'index.html',
+		'index.htm',
+		'index.shtml',
+		'index.php',
+		'index.php5',
+		'index.php4',
+		'index.php3',
+		'index.cgi',
+		'default.html',
+		'default.htm',
+		'home.html',
+		'home.htm',
+		'Index.html',
+		'Index.htm',
+		'Index.shtml',
+		'Index.php',
+		'Index.cgi',
+		'Default.html',
+		'Default.htm',
+		'Home.html',
+		'Home.htm',
+		'placeholder.html'
+	]
+
 	if( uri[-1] == '/' ):
 		uri = uri[:-1]
 
 	try:
 		components = urlparse(uri)
-		return len(components.path.split('/')) - 1
+		path = components.path.split('/')
+
+		if( len(path) == 2 and path[-1] in set(defaultIndexNames) ):
+			return 0
+		else:
+			return len(path) - 1
 	except:
 		genericErrorInfo()
 		return -1
@@ -2891,18 +3169,23 @@ def phantomJSGetHTML(uri):
 
 	return html
 
-
 #uri - start
+
 
 def isSameLinks(left, right):
 	return getDedupKeyForURI(left) == getDedupKeyForURI(right)
 
 def isURIShort(uri):
 
+	specialCases = []
+
 	try:
 		scheme, netloc, path, params, query, fragment = urlparse( uri )
-		path = path.strip()
+		
+		if( netloc in specialCases ):
+			return True
 
+		path = path.strip()
 		if( len(path) != 0 ):
 			if( path[0] == '/' ):
 				path = path[1:]
@@ -3075,7 +3358,7 @@ def getURIHash(uri):
 	hash_object = hashlib.md5(uri.encode())
 	return hash_object.hexdigest()
 
-def useCarbonDate(URI, excludeBacklinks=False, excludeArchives=False):
+def useCarbonDate(URI, excludeBacklinks=False, excludeArchives=False, port='7777'):
 
 	flags = []
 	allFlags = []
@@ -3090,7 +3373,7 @@ def useCarbonDate(URI, excludeBacklinks=False, excludeArchives=False):
 		flags = '-e ' + ' '.join(allFlags)
 		flags = flags.split(' ')
 	
-	request = ['docker', 'run', '--rm', '-it', '-p', '8888:8888', 'oduwsdl/carbondate', './main.py', '-l', 'search', URI] + flags
+	request = ['docker', 'run', '--rm', '-it', '-p', port + ':' + port, 'oduwsdl/carbondate', './main.py', '-l', 'search', URI] + flags
 	
 	try:
 		output = check_output(request)
@@ -3314,8 +3597,8 @@ def expandUrl(url, secondTryFlag=True, timeoutInSeconds='10'):
 					#find url
 					
 					#ensure url doesn't end with / - start
-					if( url[-1] == '/' ):
-						url = url[:-1]
+					#if( url[-1] == '/' ):
+					#	url = url[:-1]
 					#ensure url doesn't end with / - end
 
 					#ensure path begins with / - start
@@ -3659,7 +3942,6 @@ class DocVect(object):
 
 		if( 'tokenizer' not in params ):
 			params['tokenizer'] = None
-
 				
 		np.set_printoptions(threshold=np.nan, linewidth=100)
 		from sklearn.feature_extraction.text import CountVectorizer
@@ -3668,8 +3950,8 @@ class DocVect(object):
 
 		count_vectorizer = CountVectorizer(tokenizer=params['tokenizer'], stop_words='english', ngram_range=params['ngram-range'])
 		term_freq_matrix = count_vectorizer.fit_transform(docList)
-		sortedVocab = sorted(count_vectorizer.vocabulary_.items(), key=lambda x: x[1])
-		#print('vocab:', sortedVocab)
+		#sortedVocab = sorted(count_vectorizer.vocabulary_.items(), key=lambda x: x[1])
+		#print('vocab:', count_vectorizer.vocabulary_)
 
 		if( params['IDF']['active'] ):
 			tfidf = TfidfTransformer( norm=params['IDF']['norm'] )
@@ -3685,8 +3967,25 @@ class DocVect(object):
 			else:
 				dense = term_freq_matrix.todense()
 		
-		print(dense)
-		return dense.tolist()
+		#print('\tgetTFMatrixFromDocList(): not printing dense')
+		#print(dense)
+
+		dense = dense.tolist()
+		if( 'extra-payload' in params ):
+			
+			vocabDict = {}
+			for vocab, pos in count_vectorizer.vocabulary_.items():
+				vocabDict.setdefault(vocab, {'TF': 0})
+
+				for row in dense:
+					vocabDict[vocab]['TF'] += row[pos]
+
+			return {
+				'TF-Mat': dense,
+				'vocab': sorted(vocabDict.items(), key=lambda x: x[1]['TF'], reverse=True)
+			}
+		else:
+			return dense
 
 	@staticmethod
 	def getNormalizedTFIDFMatrixFromDocList(docList, ngramRange=(1,1), tokenizer=None):
