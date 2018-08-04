@@ -118,11 +118,11 @@ def getSingleLMPColScaffoldDict(query, nonLocalName=''):
 			{'deleted': True or False, 'search-uri': ''}
 		globalNewsCollection.collection.links[i] single instance format:
 			{
-	          "crawl-datetime": "", 
-	          "link": "http://deadspin.com/anti-dakota-access-pipeline-protesters-hang-enormous-ba-1790671349", 
-	          "snippet": "Protesters calling for U.S. Bank to stop funding the Dakota Access Pipeline project hung a huge banner from the Vikings' stadium during\u00a0...", 
-	          "title": "Anti-Dakota Access Pipeline Protesters Hang Enormous Banner ..."
-	        }	
+			  "crawl-datetime": "", 
+			  "link": "http://deadspin.com/anti-dakota-access-pipeline-protesters-hang-enormous-ba-1790671349", 
+			  "snippet": "Protesters calling for U.S. Bank to stop funding the Dakota Access Pipeline project hung a huge banner from the Vikings' stadium during\u00a0...", 
+			  "title": "Anti-Dakota Access Pipeline Protesters Hang Enormous Banner ..."
+			}	
 	'''
 
 	return globalNewsCollection
@@ -352,6 +352,45 @@ def wsdlDiversityIndex(uriLst):
 
 	return diversityPerPolicy
 
+#modified: https://github.com/oduwsdl/archivenow/blob/master/archivenow/handlers/ia_handler.py
+def archiveNowProxy(uri, params={}):
+	
+	uri = uri.strip()
+	if( len(uri) == 0 ):
+		return ''
+
+	if( 'timeout' not in params ):
+		params['timeout'] = 10
+
+	try:
+		uri = 'https://web.archive.org/save/' + uri
+		headers = getCustomHeaderDict()
+		
+		# push into the archive
+		r = requests.get(uri, timeout=params['timeout'], headers=headers, allow_redirects=True)
+		r.raise_for_status()
+		# extract the link to the archived copy 
+		if (r == None):
+			print('\narchiveNowProxy(): Error: No HTTP Location/Content-Location header is returned in the response')
+			return ''
+			
+		if 'Location' in r.headers:
+			return r.headers['Location']
+		elif 'Content-Location' in r.headers:
+			return 'https://web.archive.org' + r.headers['Content-Location']	
+		else:
+			for r2 in r.history:
+				if 'Location' in r2.headers:
+					return r2.headers['Location']
+				if 'Content-Location' in r2.headers:
+					return r2.headers['Content-Location']
+	except Exception as e:
+		print('Error: ' + str(e))
+	except:
+		genericErrorInfo()
+	
+	return ''
+
 def sendToWebArchive(url):
 
 	url = url.strip()
@@ -363,6 +402,7 @@ def sendToWebArchive(url):
 
 	try:
 		response = requests.get('http://web.archive.org/save/' + url, headers=headers, timeout=10)
+		print( response.headers )
 	except:
 		goodResponseFlagArchive0 = False
 		genericErrorInfo()
