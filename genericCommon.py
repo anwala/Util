@@ -560,6 +560,14 @@ def getNowTime():
 
 #dict - start
 
+def sortDctsByKey(dct, key, reverse=True):
+
+	key = key.strip()
+	if( len(dct) == 0 or len(key) == 0 ):
+		return []
+
+	return sorted(dct.items(), key=lambda x: x[1][key], reverse=reverse)
+
 def getFromDict(dataDict, mapList):
 	#credit: https://stackoverflow.com/a/14692747
 	
@@ -2139,12 +2147,13 @@ def wikipediaGetExternalLinksFromPage(pageURI, maxSleepInSeconds=5):
 #misc - start
 
 def parallelProxy(job):
-	return {'input': job, 'output': job['func'](**job['args'])}
+	return {'input': job, 'output': job['func'](**job['args']), 'misc': job['misc']}
 
 '''
 	jobsLst: {
 				'func': function,
-				'args': {functionArgName0: val0,... functionArgNamen: valn}  
+				'args': {functionArgName0: val0,... functionArgNamen: valn}
+				'misc': ''
 			 }
 	
 	usage example:
@@ -3066,16 +3075,22 @@ def mimicBrowser(uri, getRequestFlag=True):
 	
 	return ''
 
-def genericErrorInfo():
+def genericErrorInfo(errOutfileName='', errPrefix=''):
 	exc_type, exc_obj, exc_tb = sys.exc_info()
 	fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
 	errorMessage = fname + ', ' + str(exc_tb.tb_lineno)  + ', ' + str(sys.exc_info())
 	print('\tERROR:', errorMessage)
 	
+	mode = 'w'
+	if( os.path.exists(errOutfileName) ):
+		mode = 'a'
 
-	outfile = open(workingFolder() + 'genericErrorDump.txt', 'w')
+	if( len(errPrefix) != 0 ):
+		errPrefix = errPrefix + ': '
+
+	outfile = open(errOutfileName, mode)
 	outfile.write(getNowFilename() + '\n')
-	outfile.write(errorMessage)
+	outfile.write('\t' + errPrefix + errorMessage + '\n')
 	outfile.close()
 	
 
@@ -3158,7 +3173,7 @@ def extractPageTitleFromHTML(html):
 
 	return title
 
-def getPageTitle(uri, html=''):
+def getPageTitle(uri, html='', maxSleepInSeconds=0):
 
 	uri = uri.strip()
 	if( len(uri) == 0 ):
@@ -3167,7 +3182,7 @@ def getPageTitle(uri, html=''):
 	title = ''
 	try:
 		if( len(html) == 0 ):
-			html = dereferenceURI(uri)
+			html = dereferenceURI(uri, maxSleepInSeconds=maxSleepInSeconds)
 
 		title = extractPageTitleFromHTML(html)
 	except:
@@ -3556,7 +3571,8 @@ def expanUrlSecondTry(url, curIter=0, maxIter=100):
 	if( len(url) == 0 ):
 		return ''
 
-	print('expanUrlSecondTry(): url - ', url)
+	if( maxIter % 10 == 0 ):
+		print('\t', maxIter, ' expanUrlSecondTry(): url - ', url)
 
 	if( curIter>maxIter ):
 		return url
