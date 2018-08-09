@@ -3088,10 +3088,12 @@ def genericErrorInfo(errOutfileName='', errPrefix=''):
 	if( len(errPrefix) != 0 ):
 		errPrefix = errPrefix + ': '
 
-	outfile = open(errOutfileName, mode)
-	outfile.write(getNowFilename() + '\n')
-	outfile.write('\t' + errPrefix + errorMessage + '\n')
-	outfile.close()
+	errOutfileName = errOutfileName.strip()
+	if( len(errOutfileName) != 0 ):
+		outfile = open(errOutfileName, mode)
+		outfile.write(getNowFilename() + '\n')
+		outfile.write('\t' + errPrefix + errorMessage + '\n')
+		outfile.close()
 	
 
 #precondition: dateA/dateB format - Fri, 04 Dec 1998 14:31:39 GMT (%a, %d %b %Y %H:%M:%S GMT)
