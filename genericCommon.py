@@ -28,6 +28,7 @@ from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.action_chains import ActionChains
 
 from newspaper import Article
+from mimetypes import MimeTypes
 
 #class DocVect - start
 import math
@@ -546,8 +547,7 @@ def createFolderAtPath(path):
 			#print('\tcreateFolderAtPath(): created new folder for col:', path)
 		except:
 			genericErrorInfo()
-			print('\tcreateFolderAtPath(): created new folder for:', path)
-
+			print('\tcreateFolderAtPath() error creating', path)
 
 def getNowFilename():
 	filename = str(datetime.now()).split('.')[0]
@@ -560,7 +560,7 @@ def getNowTime():
 
 #dict - start
 
-def sortDctsByKey(dct, key, reverse=True):
+def sortDctByKey(dct, key, reverse=True):
 
 	key = key.strip()
 	if( len(dct) == 0 or len(key) == 0 ):
@@ -1012,6 +1012,10 @@ def extractFavIconFromHTML(html, sourceURL):
 
 def clean_html(html, method='python-boilerpipe'):
 	
+	if( len(html) == 0 ):
+		return ''
+
+	#experience problem of parallelizing, maybe due to: https://stackoverflow.com/questions/8804830/python-multiprocessing-pickling-error
 	if( method == 'python-boilerpipe' ):
 		try:
 			extractor = Extractor(extractor='ArticleExtractor', html=html)
@@ -1069,6 +1073,19 @@ def getArticlePubDate(uri, html):
 
 
 #text - start
+
+def sanitizeText(text):
+
+	#UnicodeEncodeError: 'utf-8' codec can't encode character '\ud83d' in position 3507: surrogates not allowed
+	try:
+		text.encode('utf-8')
+	except UnicodeEncodeError as e:
+		if e.reason == 'surrogates not allowed':	
+			text = text.encode('utf-8', 'backslashreplace').decode('utf-8')
+	except:
+		text = ''
+
+	return text
 
 def getHashForText(text):
 	hash_object = hashlib.md5( text.encode() )
@@ -1175,7 +1192,10 @@ def nlpServerStartStop(msg='start'):
 
 	if( msg == 'start' ):
 		try:
-			if( nlpIsServerOn() == False ):
+			if( nlpIsServerOn() ):
+				print('\tCoreNLP Server already on - no-op')
+			else:
+				print('\tStarting CoreNLP Server')
 				#docker run --rm -d -p 9000:9000 --name stanfordcorenlp anwala/stanfordcorenlp
 				check_output([
 					'docker', 
@@ -1557,35 +1577,114 @@ def extractTweetsFromSearch(query='', uri='', maxTweetCount=100, chromedriverPat
 	
 	return finalTweetsColDict
 
-def extractTweetsFromTweetURI(tweetConvURI, tweetConvMaxTweetCount=100, noMoreTweetCounter=0, chromedriverPath='/usr/bin/chromedriver'):
+def parallelGetTwtsFrmURIs(urisLst, tweetConvMaxTweetCount=100, maxNoMoreTweetCounter=2, chromedriverPath='/usr/bin/chromedriver'):
+	print('\nparallelGetTwts')
+
+	if( len(urisLst) == 0 ):
+		return []
+
+	if( len(urisLst) == 1 ):
+		return [extractTweetsFromTweetURI(
+			tweetConvURI=urisLst[0], 
+			tweetConvMaxTweetCount=tweetConvMaxTweetCount,
+			maxNoMoreTweetCounter=maxNoMoreTweetCounter,
+			chromedriverPath=chromedriverPath,
+			extraParams=extraParams)]
+
+	jobsLst = []
+	predefXYLocs = [
+		(0, 0),
+		(200, 0),
+		(400, 0),
+		(600, 0),
+		(0, 380),
+		(200, 380),
+		(400, 380),
+		(600, 380)
+	]
+
+	indxer = 0
+	length = len(urisLst)
+	for i in range(length):
+		
+		extraParams = {}
+		extraParams['windowX'], extraParams['windowY'] = predefXYLocs[indxer]
+		indxer += 1
+		indxer = indxer % len(predefXYLocs)
+
+		keywords = {
+			'tweetConvURI': urisLst[i],
+			'tweetConvMaxTweetCount': tweetConvMaxTweetCount,
+			'maxNoMoreTweetCounter': maxNoMoreTweetCounter,
+			'chromedriverPath': chromedriverPath,
+			'extraParams': extraParams
+		}
+
+		printMsg = '\t' + str(i) + ' of ' + str(length)
+		jobsLst.append( {'func': extractTweetsFromTweetURI, 'args': keywords, 'misc': False, 'print': printMsg} )
+
+	outLst = []
+	resLst = parallelTask(jobsLst)
+	
+	for res in resLst:
+		res['output']['self'] = res['input']['args']['tweetConvURI']
+		outLst.append( res['output'] )
+
+	return outLst
+
+def extractTweetsFromTweetURI(tweetConvURI, tweetConvMaxTweetCount=100, maxNoMoreTweetCounter=2, chromedriverPath='/usr/bin/chromedriver', extraParams={}):
 	#patched use of Chrome with:https://archive.is/94Idt
+	#set noMoreTweetCounter to -1 if no scroll required
 	from selenium import webdriver
 
 	tweetConvURI = tweetConvURI.strip()
-	if( tweetConvURI.find('https://twitter.com/') != 0 ):
+	if( tweetConvURI.find('https://twitter.com') != 0 ):
 		return {}
 
 	if( tweetConvMaxTweetCount < 1 ):
 		tweetConvMaxTweetCount = 100
 
-	try:
+	if( 'windowWidth' not in extraParams ):
+		extraParams['windowWidth'] = 840
+
+	if( 'windowHeight' not in extraParams ):
+		extraParams['windowHeight'] = 380
+
+	if( 'driver' in extraParams ):
+		driver = extraParams['driver']
+	else:
 		driver = webdriver.Chrome(executable_path=chromedriverPath)
-		driver.set_window_size(840,380)
+		driver.set_window_size(extraParams['windowWidth'], extraParams['windowHeight'])
+		
+		if( 'windowX' in extraParams and 'windowY' in extraParams ):
+			driver.set_window_position(extraParams['windowX'], extraParams['windowY'] )
+
+	try:
+		
 		#driver.maximize_window()
 		driver.get(tweetConvURI)		
 	except:
 		print('\tsupplied chromedriverpath:', chromedriverPath)
+		print('\t\ttweetConvURI:', tweetConvURI)
 		genericErrorInfo()
 		return {}
 
+
 	finalTweetsColDict = {}
-	extractTweetsMain(driver, finalTweetsColDict, tweetConvURI, tweetConvMaxTweetCount, noMoreTweetCounter)
+	extractTweetsMain(
+		driver=driver, 
+		finalTweetsColDict=finalTweetsColDict, 
+		tweetConvURI=tweetConvURI, 
+		tweetConvMaxTweetCount=tweetConvMaxTweetCount, 
+		maxNoMoreTweetCounter=maxNoMoreTweetCounter
+	)
 	driver.quit()
 
 	return finalTweetsColDict
 
-def extractTweetsMain(driver, finalTweetsColDict, tweetConvURI, tweetConvMaxTweetCount=100, noMoreTweetCounter=0):
+def extractTweetsMain(driver, finalTweetsColDict, tweetConvURI, tweetConvMaxTweetCount=100, maxNoMoreTweetCounter=2):
 
+	#set maxNoMoreTweetCounter to -1 if you don't want any scroll
 	print('\nextractTweetsMain()')
 
 	tweetConvURI = tweetConvURI.strip()
@@ -1595,12 +1694,10 @@ def extractTweetsMain(driver, finalTweetsColDict, tweetConvURI, tweetConvMaxTwee
 	if( tweetConvMaxTweetCount < 1 ):
 		tweetConvMaxTweetCount = 100
 
-	maxNoMoreTweetCounter = 2#2
-
 	finalTweetsColDictPrevLen = len(finalTweetsColDict)
 	print('\ttweets:', finalTweetsColDictPrevLen)
-	print('\tnoMoreTweetCounter:', noMoreTweetCounter, 'of', maxNoMoreTweetCounter)
-	randSleep()
+	print('\tmaxNoMoreTweetCounter:', maxNoMoreTweetCounter)
+	#randSleep()
 
 	try:
 		clickShowMore(driver)
@@ -1617,16 +1714,14 @@ def extractTweetsMain(driver, finalTweetsColDict, tweetConvURI, tweetConvMaxTwee
 				return
 
 		if( finalTweetsColDictPrevLen == len(finalTweetsColDict) ):
-			noMoreTweetCounter += 1
-		else:
-			noMoreTweetCounter = 0
+			maxNoMoreTweetCounter -= 1
 
-		if( noMoreTweetCounter > maxNoMoreTweetCounter ):
+		if( maxNoMoreTweetCounter < 1 ):
 			print('\tno more tweets, breaking')
 			return
 
 		scrollDown(driver, tweetConvURI)
-		extractTweetsMain(driver, finalTweetsColDict, tweetConvURI, tweetConvMaxTweetCount, noMoreTweetCounter)
+		extractTweetsMain(driver, finalTweetsColDict, tweetConvURI, tweetConvMaxTweetCount, maxNoMoreTweetCounter)
 	except:
 		genericErrorInfo()
 	
@@ -1634,13 +1729,27 @@ def clickShowMore(driver):
 
 	script = '''
 		//revise when better understanding of DOM is established
-		var showMoreSignature = ['[class="ThreadedConversation-moreRepliesLink"]', '[class="show-more-link"]'];
+		var showMoreSignature = ['ThreadedConversation-moreRepliesLink', 'ThreadedConversation-showMoreThreadsButton' ,'show-more-link', 'new-tweets-bar', 'Tombstone-action'];
 		for(var i = 0; i<showMoreSignature.length; i++)
 		{
-			var showMore = document.querySelectorAll(showMoreSignature[i]);
-			for(var j=0; j<showMore.length; j++)
+			for( var j = 0; j<2; j++ )
 			{
-				showMore[j].click();
+
+				var showMore;
+				if( j == 0 )
+				{
+					showMore = document.querySelectorAll( '[class="' + showMoreSignature[i] + '"]' );
+				}
+				else
+				{
+					showMore = document.getElementsByClassName( showMoreSignature[i] );
+				}
+
+				for(var k=0; k<showMore.length; k++)
+				{
+					showMore[k].click();
+				}
+
 			}
 		}
 	'''
@@ -1678,17 +1787,62 @@ def twitterGetDescendants(twitterHTMLPage):
 
 	if( len(twitterHTMLPage) == 0 ):
 		return {}
+	
 
-	tweetsDict = {};
+	tweetsLst = [];
+	tweetCounter = 0
+	rootTwtID = ''
+	isThreadPresent = False
+	conversationMarker = False
+	
+
 	soup = BeautifulSoup(twitterHTMLPage, 'html.parser')
 	tweets = soup.find_all(class_='tweet')
 
-	for tweet in tweets:
-		tweet = twitterGetTweetIfExist(tweet)
-		if( len(tweet) != 0 ):
-			tweetsDict[ tweet['data-tweet-id'] ] = tweet
+	#method 1 of identifying threads: check if this is a conversation thread - start
+	if( soup.find(class_='ThreadedConversation--selfThread') is not None ):
+		conversationMarker = True
+	#method 1 of identifying threads: check if this is a conversation thread - end
 
-	return tweetsDict
+	for i in range(len(tweets)):
+		
+		tweetHtml = tweets[i]
+		tweets[i] = twitterGetTweetIfExist( tweets[i] )
+		if( len(tweets[i]) != 0 ):
+
+			tweets[i]['pos'] = tweetCounter		
+			if( conversationMarker ):
+				tweets[i]['in-explicit-thread'] = recursiveIsTwtInSelfChain( tweetHtml );
+				#special case since head of thread is not part of self chain
+				if( tweets[i]['data-conversation-id'] == tweets[i]['data-tweet-id'] ):
+					tweets[i]['in-explicit-thread'] = True
+
+			if( tweets[i]['data-conversation-id'] == tweets[i]['data-tweet-id'] ):
+				rootTwtID = tweets[i]['data-conversation-id']
+			
+			
+			tweetsLst.append( tweets[i] )
+			tweetCounter += 1
+
+	#method 2 of identifying threads - start
+	tweetsLst = sorted(tweetsLst, key=lambda k: k['pos'])
+	isThreadPresent = isTwtsThread(rootTwtID, tweetsLst)
+	#method 2 of identifying threads - eend
+
+	
+	return { 
+		'is-thread': isThreadPresent,
+		'tweets': tweetsLst
+	}
+
+def isTwtsThread(rootTwtID, tweetsLst):
+
+	for i in range(len(tweetsLst)):
+		if( tweetsLst[i]['data-conversation-id'] == rootTwtID and tweetsLst[i]['data-tweet-id'] != rootTwtID ):
+			#The root tweet in a conversation: data-conversation-id = data-tweet-id
+			#Here means a tweet that is not the root tweet has been found that replied the root tweet
+			return True
+	return False
 
 def isVideoAdaptiveMediaInTweet(tweetDivTag):
 
@@ -1777,6 +1931,22 @@ def twitterGetTweetFromMoment(uri='', twitterHTMLPage=''):
 	
 	return tweetsDict
 
+def recursiveIsTwtInSelfChain(tweetDiv):
+
+	parent = tweetDiv.parent
+	classNames = []
+
+	if( parent is None ):
+		return False
+	elif( parent.has_attr('class') ):
+		classNames = parent['class']
+
+	for i in range( len(classNames) ):	
+		if( classNames[i].strip().lower() == 'threadedconversation--selfthread' ):
+			return True
+	
+	return recursiveIsTwtInSelfChain(parent)
+
 def twitterGetTweetIfExist(potentialTweetDiv):
 
 	tweetDict = {};
@@ -1795,6 +1965,8 @@ def twitterGetTweetIfExist(potentialTweetDiv):
 	tweetDict['tweet-time'] = ''
 	tweetDict['user-verified'] = False
 	tweetDict['tweet-links'] = []
+	tweetDict['tweet-stats'] = {};
+	tweetDict['extra'] = {};
 	tweetDict['is-video-adaptive-present'] = False
 	uniformAccessAttrs = ['data-conversation-id', 'data-mentions']
 
@@ -1817,6 +1989,44 @@ def twitterGetTweetIfExist(potentialTweetDiv):
 
 	tweetDict['tweet-links'] = twitterGetLinksFromTweetDiv(potentialTweetDiv)
 	tweetDict['is-video-adaptive-present'] = isVideoAdaptiveMediaInTweet(potentialTweetDiv)
+
+	#get stats - start
+	uniformAccessAttrs = ['reply', 'retweet', 'favorite']
+	for attr in uniformAccessAttrs:
+		
+		tweetDict['tweet-stats'][attr] = 0
+		stat = potentialTweetDiv.find(class_='ProfileTweet-action--' + attr)
+		
+		if( stat is not None ):
+			stat = stat.text.split(' ')[0].strip();
+			if( stat.isdigit() ):
+				tweetDict['tweet-stats'][attr] = int(stat)
+	#get stats - end
+
+	showThread = potentialTweetDiv.find(class_='show-thread-link')
+	
+	if( showThread is not None ):
+		if( showThread.has_attr('href') == True ):
+			
+			link = showThread['href'].split('status/')
+			if( len(link) == 2 and 'data-conversation-id' in tweetDict ):
+				tweetDict['extra']['thread'] = 'https://twitter.com' + link[0] + 'status/' + tweetDict['data-conversation-id']
+	
+	#find "Replying to" - start
+	replyingTo = potentialTweetDiv.find(class_='ReplyingToContextBelowAuthor')
+	if( replyingTo is not None ):
+		
+		replyAcnts = replyingTo.findAll(class_='js-user-profile-link')
+		for i in range(len(replyAcnts)):
+			if( replyAcnts[i].has_attr('href') == True ):
+				tweetDict['extra'].setdefault('replying-to', [])
+				tweetDict['extra']['replying-to'].append( replyAcnts[i]['href'].replace('/', '') )
+
+		if( 'replying-to' in tweetDict['extra'] ):
+			if( len(tweetDict['extra']['replying-to']) != 0 ):
+				if( tweetDict['data-screen-name'] == tweetDict['extra']['replying-to'][0] ):
+					tweetDict['extra']['implicit-thread'] = True
+	#find "Replying to" - start				
 		
 	return tweetDict
 
@@ -2145,8 +2355,29 @@ def wikipediaGetExternalLinksFromPage(pageURI, maxSleepInSeconds=5):
 
 
 #misc - start
+def getDayOfWeek(dateObj):
+	if( isinstance(dateObj, datetime) == False ):
+		return ''
+	
+	weekdayDict = {
+		0: 'monday',
+		1: 'tuesday',
+		2: 'wednesday',
+		3: 'thursday',
+		4: 'friday',
+		5: 'saturday',
+		6: 'sunday'
+	}
+	
+	return weekdayDict[dateObj.weekday()]
+
 
 def parallelProxy(job):
+	
+	if( 'print' in job ):
+		if( len(job['print']) != 0 ):
+			print(job['print'])
+
 	return {'input': job, 'output': job['func'](**job['args']), 'misc': job['misc']}
 
 '''
@@ -2170,6 +2401,9 @@ def parallelProxy(job):
 	print( parallelTask(jobsLst) )
 '''
 def parallelTask(jobsLst, threadCount=5):
+
+	if( len(jobsLst) == 0 ):
+		return []
 
 	if( threadCount < 2 ):
 		threadCount = 2
@@ -2978,7 +3212,22 @@ def dereferenceURI(URI, maxSleepInSeconds=5):
 	
 	return htmlPage
 
-def getDomain(url, includeSubdomain=True):
+def getMimeType(uri):
+	
+	uri = uri.strip()
+
+	if( len(uri) == 0 ):
+		return ''
+	
+	mime = MimeTypes()
+	mime = mime.guess_type(uri)
+
+	if( mime is None ):
+		return ''
+	else:
+		return mime
+
+def getDomain(url, includeSubdomain=True, excludeWWW=True):
 
 	url = url.strip()
 	if( len(url) == 0 ):
@@ -3002,11 +3251,13 @@ def getDomain(url, includeSubdomain=True):
 		if( len(domain) != 0 ):
 			domain = domain + suffix
 		
-		if( subdomain.find('www') == 0 ):
-			if( len(subdomain) > 3 ):
-				subdomain = subdomain[4:]
-			else:
-				subdomain = subdomain[3:]
+		if( excludeWWW ):
+			if( subdomain.find('www') == 0 ):
+				if( len(subdomain) > 3 ):
+					subdomain = subdomain[4:]
+				else:
+					subdomain = subdomain[3:]
+
 
 		if( len(subdomain) != 0 ):
 			subdomain = subdomain + '.'
@@ -3021,10 +3272,10 @@ def getDomain(url, includeSubdomain=True):
 
 #http://stackoverflow.com/questions/4770297/python-convert-utc-datetime-string-to-local-datetime
 # From 2015-07-12 18:45:11
-def datetime_from_utc_to_local(utc_datetime):
-	now_timestamp = time.time()
-	offset = datetime.fromtimestamp(now_timestamp) - datetime.utcfromtimestamp(now_timestamp)
-	return utc_datetime + offset
+def datetime_from_utc_to_local(utc):
+	epoch = time.mktime(utc.timetuple())
+	offset = datetime.fromtimestamp (epoch) - datetime.utcfromtimestamp (epoch)
+	return utc + offset
 
 #directive: verify seleniums header
 def getCustomHeaderDict():
@@ -3072,6 +3323,8 @@ def mimicBrowser(uri, getRequestFlag=True):
 
 		genericErrorInfo()
 		print('\tquery is: ', uri)
+		if( getRequestFlag == False ):
+			return {}
 	
 	return ''
 
@@ -3227,6 +3480,25 @@ def phantomJSGetHTML(uri):
 	return html
 
 #uri - start
+
+def dedupLinks(uriLst):
+
+	prev = len(uriLst)
+
+	dedupSet = set()
+	dedupedLst = []
+	for u in uriLst:
+		uriKey = getDedupKeyForURI(u)
+
+		if( uriKey in dedupSet ):
+			continue
+
+		dedupSet.add( uriKey )
+		dedupedLst.append(u)
+
+	print('\tdedupLinks(): diff', prev - len(dedupedLst))
+
+	return dedupedLst
 
 
 def isSameLinks(left, right):
@@ -3415,10 +3687,111 @@ def getURIHash(uri):
 	hash_object = hashlib.md5(uri.encode())
 	return hash_object.hexdigest()
 
-def useCarbonDate(URI, excludeBacklinks=False, excludeArchives=False, port='7777'):
+def carbonDateIsServerOn(host='localhost', port='8888'):
+
+	try:
+		response = requests.head('http://' + host +':' + port + '/')
+		
+		if( response.status_code == 200 ):
+			return True
+		else:
+			return False
+
+	except:
+		genericErrorInfo()
+
+	return False
+
+def useCarbonDateServer(uri, host='localhost', port='8888'):
+
+	uri = uri.strip()
+	port = str(port)
+
+	if( len(uri) == 0 ):
+		return ''
+
+	try:
+		output = check_output(['curl', '--silent', 'http://' + host +':' + port + '/cd/' + uri])
+		output = output.decode('utf-8')
+		output = json.loads(output)
+		
+		return output['estimated-creation-date']
+	except:
+		genericErrorInfo()
+
+	return ''
+
+
+def carbonDateServerStartStop(msg='start', extraParams={}):
+
+	if( 'port' in extraParams ):
+		port = extraParams['port']
+	else:
+		port = '8888'
+
+
+	if( msg =='start' and carbonDateIsServerOn(port=port) ):
+		print('\tCD Server already on - no-op')
+		return
+
+	print('\tStarting CD Server')
+	flags = []
+	allFlags = []
+
+	if( 'excludeBacklinks' not in extraParams ):
+		extraParams['excludeBacklinks'] = True
+
+	if( 'excludeArchives' not in extraParams ):
+		extraParams['excludeArchives'] = False
+
+	if( 'excludeGoogle' not in extraParams ):
+		extraParams['excludeGoogle'] = False
+
+	
+
+
+
+	if( extraParams['excludeBacklinks'] ):
+		allFlags.append('cdGetBacklinks')
+
+	if( extraParams['excludeArchives'] ):
+		allFlags.append('cdGetArchives')
+
+	if( extraParams['excludeGoogle'] ):
+		allFlags.append('cdGetGoogle')
+
+	if( len(allFlags) != 0 ):
+		flags = '-e ' + ' '.join(allFlags)
+		flags = flags.split(' ')
+
+	try:
+		if( msg == 'start' ):
+			request = [
+				'docker', 
+				'run', 
+				'--rm', 
+				'-d', 
+				'-p', 
+				port + ':' + port, 
+				'--name',
+				'carbondateserver',
+				'oduwsdl/carbondate', 
+				'./main.py', 
+				'-s'] + flags
+			check_output(request)
+		else:
+			check_output(['docker', 'rm', '-f', 'carbondateserver'])
+	except:
+		genericErrorInfo()
+
+
+def useCarbonDate(URI, excludeBacklinks=False, excludeArchives=False, port='7777', extraParams={}):
 
 	flags = []
 	allFlags = []
+	
+	if( 'excludeGoogle' not in extraParams ):
+		extraParams['excludeGoogle'] = False
 
 	if( excludeBacklinks ):
 		allFlags.append('cdGetBacklinks')
@@ -3426,15 +3799,19 @@ def useCarbonDate(URI, excludeBacklinks=False, excludeArchives=False, port='7777
 	if( excludeArchives ):
 		allFlags.append('cdGetArchives')
 
+	if( extraParams['excludeGoogle'] ):
+		allFlags.append('cdGetGoogle')
+
 	if( len(allFlags) != 0 ):
 		flags = '-e ' + ' '.join(allFlags)
 		flags = flags.split(' ')
-	
+
 	request = ['docker', 'run', '--rm', '-it', '-p', port + ':' + port, 'oduwsdl/carbondate', './main.py', '-l', 'search', URI] + flags
-	
+
 	try:
 		output = check_output(request)
-		output = json.loads(output.decode('utf-8'))
+		output = output.decode('utf-8')
+		output = json.loads(output)
 
 		return output['estimated-creation-date']
 	except:
@@ -3495,8 +3872,7 @@ def getURIRFromMemento(memento):
 
 def getMementoCount(uri, mememtoAggregator='http://memgator.cs.odu.edu/', timeout='20'):
 
-	print('\n\tgetMementoCount():')
-	print('\t\turi:', uri)
+	print('\tgetMementoCount():', uri)
 	#print('\tmememtoAggregator:', mememtoAggregator)
 	#print('\ttimeout', timeout)
 
