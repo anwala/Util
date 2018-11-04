@@ -26,6 +26,7 @@ from tldextract import extract
 
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.action_chains import ActionChains
+from selenium.common.exceptions import TimeoutException
 
 from newspaper import Article
 from mimetypes import MimeTypes
@@ -3347,6 +3348,8 @@ def genericErrorInfo(errOutfileName='', errPrefix=''):
 		outfile.write(getNowFilename() + '\n')
 		outfile.write('\t' + errPrefix + errorMessage + '\n')
 		outfile.close()
+
+	return  sys.exc_info()
 	
 
 #precondition: dateA/dateB format - Fri, 04 Dec 1998 14:31:39 GMT (%a, %d %b %Y %H:%M:%S GMT)
@@ -3642,7 +3645,17 @@ def nodeLoadWebpage(uri, throttleSeconds=3):
 
 	return html
 
-def seleniumSaveScreenshot(driver, uri, outfilename, waitTimeInSeconds=10):
+def seleniumScreenShotCommon(driver, outfilename, extraParams):
+
+	driver.save_screenshot(outfilename)
+	print('\tsaved screenshot:', outfilename)
+
+	if( 'closeBrower' in extraParams ):
+		if( extraParams['closeBrower'] ):
+			driver.quit()
+
+
+def seleniumSaveScreenshot(driver, uri, outfilename, waitTimeInSeconds=10, extraParams={}):
 	#make outfilename blank to close browser
 
 	print('seleniumLoadWebpage():')
@@ -3664,13 +3677,19 @@ def seleniumSaveScreenshot(driver, uri, outfilename, waitTimeInSeconds=10):
 		#driver = webdriver.Firefox()
 		print('\tgetting:', uri)
 		driver.get(uri)
-		driver.maximize_window()
 
-		print('\tsleeping in seconds:', waitTimeInSeconds)
+		if( 'windowWidth' in extraParams and 'windowHeight' in extraParams ):
+			driver.set_window_size(extraParams['windowWidth'], extraParams['windowHeight'])
+		else:
+			driver.maximize_window()
+
+		if( 'script' in extraParams ):
+			driver.execute_script( extraParams['script'] )
+
+	
+		print('\tpre sleeping in seconds:', waitTimeInSeconds)
 		time.sleep(waitTimeInSeconds)
-
-		driver.save_screenshot(outfilename)
-		print('\tsaved screenshot:', outfilename)
+		seleniumScreenShotCommon(driver, outfilename, extraParams)
 
 		return True
 	except:
