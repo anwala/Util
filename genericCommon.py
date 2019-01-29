@@ -30,6 +30,7 @@ from selenium.common.exceptions import TimeoutException
 from boilerpipe.extract import Extractor
 from newspaper import Article
 from mimetypes import MimeTypes
+from dateparser import parse as parseDateStr
 
 #class DocVect - start
 import math
@@ -1254,14 +1255,17 @@ def nlpGetEntitiesFromText(text, host='localhost', iso8601Date='', labelLst=['PE
 	if( params is None ):
 		params = {}
 
+	iso8601Date = iso8601Date.strip()
+
 	#set default params - start
 	if( 'normalizedTimeNER' not in params ):
 		params['normalizedTimeNER'] = False
 	#set default params - start
 
+	if( params['normalizedTimeNER'] and iso8601Date == '' ):
+		iso8601Date = getNowTime().replace(' ', 'T')
 
 	labelLst = set(labelLst)
-	iso8601Date = iso8601Date.strip()
 	if( len(iso8601Date) != 0 ):
 		iso8601Date = ',"date":"' + iso8601Date + '"'
 
@@ -4481,6 +4485,15 @@ def datetime_from_utc_to_local(utc):
 	epoch = time.mktime(utc.timetuple())
 	offset = datetime.fromtimestamp (epoch) - datetime.utcfromtimestamp (epoch)
 	return utc + offset
+
+def parseStrDate(strDate):
+
+	try:
+		return parseDateStr(strDate)
+	except:
+		genericErrorInfo()
+
+	return None
 
 #directive: verify seleniums header
 def getCustomHeaderDict():
