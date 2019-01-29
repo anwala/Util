@@ -20,7 +20,6 @@ from functools import reduce
 from random import randint
 from os.path import dirname, abspath
 from textstat.textstat import textstat
-from boilerpipe.extract import Extractor
 from urllib.parse import urlparse, quote, quote_plus
 from tldextract import extract
 
@@ -28,6 +27,7 @@ from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.action_chains import ActionChains
 from selenium.common.exceptions import TimeoutException
 
+from boilerpipe.extract import Extractor
 from newspaper import Article
 from mimetypes import MimeTypes
 
@@ -37,10 +37,6 @@ import string
 import numpy as np
 from numpy import linalg as LA
 
-from nltk.tokenize import word_tokenize#prerequisite is single use of  nltk.download('punkt') # first-time use only
-
-from nltk.stem.porter import PorterStemmer
-from nltk.stem import WordNetLemmatizer#prerequisite is single use of nltk.download('wordnet')
 
 from sklearn.metrics import pairwise_distances
 
@@ -355,11 +351,14 @@ def wsdlDiversityIndex(uriLst):
 	return diversityPerPolicy
 
 #modified: https://github.com/oduwsdl/archivenow/blob/master/archivenow/handlers/ia_handler.py
-def archiveNowProxy(uri, params={}):
+def archiveNowProxy(uri, params=None):
 	
 	uri = uri.strip()
 	if( len(uri) == 0 ):
 		return ''
+
+	if( params is None ):
+		params = {}
 
 	if( 'timeout' not in params ):
 		params['timeout'] = 10
@@ -557,7 +556,7 @@ def getNowFilename():
 def getNowTime():
 
 	now = str(datetime.now()).split('.')[0]
-	return now.replace(' ', 'T')
+	return now
 
 #dict - start
 
@@ -589,8 +588,13 @@ def setInDict(dataDict, mapList, value):
 def getDictFromFile(filename):
 
 	try:
+
+		if( os.path.exists(filename) == False ):
+			return {}
+
 		return getDictFromJson( readTextFromFile(filename) )
 	except:
+		print('\tgetDictFromFile(): error filename', filename)
 		genericErrorInfo()
 
 	return {}
@@ -1054,19 +1058,21 @@ def clean_html(html, method='python-boilerpipe'):
 
 def getArticlePubDate(uri, html):
 
-	article = Article(uri)
-	article.download(input_html=html)
-	article.parse()
-
-	if( article.publish_date is None ):
+	if( len(html) == 0 ):
 		return ''
-	else:
 
-		try:
+	try:
+		article = Article(uri)
+		article.download(input_html=html)
+		article.parse()
+
+		if( article.publish_date is None ):
+			return ''
+		else:
 			pubdate = article.publish_date
 			return str(pubdate.date()) + ' ' + str(pubdate.time())
-		except:
-			genericErrorInfo()
+	except:
+		genericErrorInfo()
 
 	return ''
 
@@ -1243,7 +1249,10 @@ def nlpStopServer_obsolete():
 
 
 #iso8601Date: YYYY-MM-DDTHH:MM:SS
-def nlpGetEntitiesFromText(text, host='localhost', iso8601Date='', labelLst=['PERSON','LOCATION','ORGANIZATION','DATE','MONEY','PERCENT','TIME'], params={}):
+def nlpGetEntitiesFromText(text, host='localhost', iso8601Date='', labelLst=['PERSON','LOCATION','ORGANIZATION','DATE','MONEY','PERCENT','TIME'], params=None):
+
+	if( params is None ):
+		params = {}
 
 	#set default params - start
 	if( 'normalizedTimeNER' not in params ):
@@ -1467,11 +1476,15 @@ def readTextFromFile(infilename):
 		text = infile.read()
 		infile.close()
 	except:
+		print('\treadTextFromFile()error filename:', infilename)
 		genericErrorInfo()
 
 	return text
 
-def dumpJsonToFile(outfilename, dictToWrite, indentFlag=True, extraParams={}):
+def dumpJsonToFile(outfilename, dictToWrite, indentFlag=True, extraParams=None):
+
+	if( extraParams is None ):
+		extraParams = {}
 
 	if( 'verbose' not in extraParams ):
 		extraParams['verbose'] = True
@@ -1496,6 +1509,19 @@ def dumpJsonToFile(outfilename, dictToWrite, indentFlag=True, extraParams={}):
 
 #twitter - start
 
+def isIsolatedTweet(twtDct):
+	
+	try:
+		#first condition is for root tweet
+		if( twtDct['data-conversation-id'] == twtDct['data-tweet-id'] and twtDct['tweet-stats']['reply'] == 0 ):
+			return True
+		else:
+			return False
+	except:
+		genericErrorInfo()
+
+	return None
+
 #extract 863007411132649473 from 'https://twitter.com/realDonaldTrump/status/863007411132649473'
 def getTweetIDFromStatusURI(tweetURI):
 
@@ -1511,6 +1537,27 @@ def getTweetIDFromStatusURI(tweetURI):
 		return tweetURI.split('status/')[1].strip()
 
 	return ''
+
+def parseTweetURI(tweetURI):
+
+	twtDat = {'screenName': '', 'id': ''}
+	if( tweetURI.startswith('https://twitter.com/') == False ):
+		return twtDat
+
+
+	tweetURI = tweetURI.strip()
+	parts = urlparse(tweetURI)
+	tweetURI = parts.scheme + '://' + parts.netloc + parts.path
+
+	if( tweetURI[-1] == '/' ):
+		tweetURI = tweetURI[:-1]
+
+	if( tweetURI.find('status/') != -1 ):
+		twtDat['id'] = tweetURI.split('status/')[1].strip()
+		twtDat['id'] = twtDat['id'].split('?')[0].strip()
+		twtDat['screenName'] = tweetURI.split('https://twitter.com/')[1].replace('/status/' + twtDat['id'], '')
+
+	return twtDat
 
 def getTweetLink(screenName, tweetId):
 	return 'https://twitter.com/' + screenName + '/status/' + tweetId
@@ -1549,13 +1596,16 @@ def extractVideoLinkFromTweet(tweetURI, driver=None):
 
 	
 
-def extractTweetsFromSearch(query='', uri='', maxTweetCount=100, chromedriverPath='/usr/bin/chromedriver', latestVerticalFlag=False):
+def extractTweetsFromSearch(query='', uri='', maxTweetCount=100, chromedriverPath='/usr/bin/chromedriver', latestVerticalFlag=False, extraParams=None):
 
 	query = query.strip()
 	uri = uri.strip()
 
 	if( len(query) == 0 and len(uri) == 0 ):
 		return {}
+
+	if( extraParams is None ):
+		extraParams = {}
 
 	if( latestVerticalFlag ):
 		latestVerticalFlag = 'f=tweets&'
@@ -1564,84 +1614,224 @@ def extractTweetsFromSearch(query='', uri='', maxTweetCount=100, chromedriverPat
 
 	twitterURIPrefix = 'https://twitter.com/search?' + latestVerticalFlag + 'q='#top
 
+	if( 'maxNoMoreTweetCounter' not in extraParams ):
+		extraParams['maxNoMoreTweetCounter'] = 2
+
 	finalTweetsColDict = {}
 	if( len(query) != 0 ):
 		searchURI = twitterURIPrefix + quote_plus( query ) + '&src=typd'
-		finalTweetsColDict = extractTweetsFromTweetURI(searchURI, maxTweetCount, chromedriverPath=chromedriverPath)
+		finalTweetsColDict = extractTweetsFromTweetURI(
+			searchURI, 
+			maxTweetCount, 
+			maxNoMoreTweetCounter=extraParams['maxNoMoreTweetCounter'],
+			chromedriverPath=chromedriverPath,
+			extraParams=extraParams
+		)
 	else:
 		for urlPrefix in ['url:', '']:
 			searchURI = twitterURIPrefix + quote_plus( urlPrefix + uri ) + '&src=typd'
-			finalTweetsColDict = extractTweetsFromTweetURI(searchURI, maxTweetCount, chromedriverPath=chromedriverPath)
+			finalTweetsColDict = extractTweetsFromTweetURI(
+				searchURI, 
+				maxTweetCount, 
+				maxNoMoreTweetCounter=extraParams['maxNoMoreTweetCounter'],
+				chromedriverPath=chromedriverPath,
+				extraParams=extraParams
+			)
 
 			if( len(finalTweetsColDict) != 0 ):
 				break
 	
 	return finalTweetsColDict
 
-def parallelGetTwtsFrmURIs(urisLst, tweetConvMaxTweetCount=100, maxNoMoreTweetCounter=2, chromedriverPath='/usr/bin/chromedriver'):
+#maxRetryCount: -1 means unlimited
+def retryParallelTwtsExt(urisLst, maxRetryCount=10, tweetConvMaxTweetCount=100, maxNoMoreTweetCounter=2, chromedriverPath='/usr/bin/chromedriver', extraParams=None):
+
+	
+	if( extraParams is None ):
+		extraParams = {}
+
+	result = []
+	errorReqsDict = {}
+	counter = 0
+	extraParams['reportError'] = True
+
+
+	while counter < maxRetryCount:
+
+		tmpResult = parallelGetTwtsFrmURIs(
+			urisLst,
+			tweetConvMaxTweetCount=tweetConvMaxTweetCount,
+			maxNoMoreTweetCounter=maxNoMoreTweetCounter,
+			chromedriverPath=chromedriverPath,
+			extraParams=extraParams
+		)
+		
+		urisLst = []
+		for res in tmpResult:
+			if( 'error' in res ):
+				urisLst.append( res['self'] )
+				
+				#save problematic request result payload, in case loop doesn't get chance to run again
+				errorReqsDict[res['self']] = res
+			else:
+				result.append( res )
+
+				if( res['self'] in errorReqsDict ):
+					#remove this rectified request
+					del errorReqsDict[res['self']]
+
+		print('\nretryParallelTwtsExt, iter:', counter, 'of', maxRetryCount, ', queue:', len(urisLst))
+		if( len(urisLst) == 0 ):
+			print('\n\tbreaking, queue empty')
+			break
+		
+		counter += 1
+
+	for uri, res in errorReqsDict.items():
+		result.append(res)
+
+	return result
+
+def parallelGetTwtsFrmURIs(urisLst, tweetConvMaxTweetCount=100, maxNoMoreTweetCounter=2, chromedriverPath='/usr/bin/chromedriver', extraParams=None):
 	print('\nparallelGetTwts')
 
 	if( len(urisLst) == 0 ):
 		return []
 
-	if( len(urisLst) == 1 ):
-		return [extractTweetsFromTweetURI(
-			tweetConvURI=urisLst[0], 
-			tweetConvMaxTweetCount=tweetConvMaxTweetCount,
-			maxNoMoreTweetCounter=maxNoMoreTweetCounter,
-			chromedriverPath=chromedriverPath,
-			extraParams=extraParams)]
+	if( extraParams is None ):
+		extraParams = {}
+
+	offset = 0
+	if( 'windowShiftOffset' in extraParams ):
+		offset = extraParams['windowShiftOffset']
+		print('\toffset:', offset)
 
 	jobsLst = []
 	predefXYLocs = [
-		(0, 0),
-		(200, 0),
-		(400, 0),
-		(600, 0),
-		(0, 380),
-		(200, 380),
-		(400, 380),
-		(600, 380)
+		(0 + offset, 0),
+		(200 + offset, 0),
+		(400 + offset, 0),
+		(600 + offset, 0),
+		(0 + offset, 380),
+		(200 + offset, 380),
+		(400 + offset, 380),
+		(600 + offset, 380)
 	]
 
 	indxer = 0
 	length = len(urisLst)
 	for i in range(length):
 		
-		extraParams = {}
-		extraParams['windowX'], extraParams['windowY'] = predefXYLocs[indxer]
+		locExtraParams = {}
+		locExtraParams['windowX'], locExtraParams['windowY'] = predefXYLocs[indxer]
 		indxer += 1
 		indxer = indxer % len(predefXYLocs)
+
+		#transfer props
+		for key, val in extraParams.items():
+			locExtraParams[key] = val
 
 		keywords = {
 			'tweetConvURI': urisLst[i],
 			'tweetConvMaxTweetCount': tweetConvMaxTweetCount,
 			'maxNoMoreTweetCounter': maxNoMoreTweetCounter,
 			'chromedriverPath': chromedriverPath,
-			'extraParams': extraParams
+			'extraParams': locExtraParams
 		}
 
 		printMsg = '\t' + str(i) + ' of ' + str(length)
 		jobsLst.append( {'func': extractTweetsFromTweetURI, 'args': keywords, 'misc': False, 'print': printMsg} )
 
+
 	outLst = []
-	resLst = parallelTask(jobsLst)
+	resLst = parallelTask(jobsLst, threadCount=4)
 	
 	for res in resLst:
-		res['output']['self'] = res['input']['args']['tweetConvURI']
+		res['output']['stats'] = {'total-links': 0, 'total-tweets': 0}
+		if( len(res['output']) != 0 and 'tweets' in res['output'] ):
+			res['output']['stats']['total-links'] = countLinksInTweets( res['output']['tweets'] )
+			res['output']['stats']['total-tweets'] = len(res['output']['tweets'])
+		
 		outLst.append( res['output'] )
 
 	return outLst
 
-def extractTweetsFromTweetURI(tweetConvURI, tweetConvMaxTweetCount=100, maxNoMoreTweetCounter=2, chromedriverPath='/usr/bin/chromedriver', extraParams={}):
+def countLinksInTweets(tweets):
+	
+	totalLinks = 0
+	for twt in tweets:
+		totalLinks += len(twt['tweet-links'])
+
+	return totalLinks
+
+def readTwtCache(cacheFolder, tweetURI):
+	
+	twtDat = parseTweetURI(tweetURI)
+	cacheFolder = cacheFolder.strip()
+
+	if( len(cacheFolder) != 0 and len(twtDat['screenName']) != 0 and len(twtDat['id']) != 0 ):
+		return getDictFromFile(cacheFolder + twtDat['screenName'] + '-' + twtDat['id'] + '.json')
+
+	return {}
+
+def writeTwtCache(cacheFolder, tweetURI, twtDct):
+
+	cacheFolder = cacheFolder.strip()
+	if( len(cacheFolder) == 0 or len(twtDct) == 0 ):
+		return
+
+	twtDat = parseTweetURI(tweetURI)
+	if( len(twtDat['screenName']) == 0 or len(twtDat['id']) == 0 ):
+		return
+
+	twtFileName = cacheFolder + twtDat['screenName'] + '-' + twtDat['id'] + '.json'
+	dumpJsonToFile(twtFileName, twtDct, indentFlag=False)
+	
+
+def extractTweetsFromTweetURI(tweetConvURI, tweetConvMaxTweetCount=100, maxNoMoreTweetCounter=2, chromedriverPath='/usr/bin/chromedriver', extraParams=None):
 	#patched use of Chrome with:https://archive.is/94Idt
 	#set noMoreTweetCounter to -1 if no scroll required
 	from selenium import webdriver
 
 	tweetConvURI = tweetConvURI.strip()
+	finalTweetsColDict = {}
+	cacheMiss = False
 	if( tweetConvURI.find('https://twitter.com') != 0 ):
 		return {}
 
+	if( extraParams is None ):
+		extraParams = {}
+
+	print('\nextractTweetsFromTweetURI():')
+	print('\turi:', tweetConvURI)
+
+	if( 'cache' in extraParams ):
+		print('\tCACHE ON')
+		print('\t', extraParams['cache'])
+	else:
+		print('\tCACHE OFF')
+		extraParams['cache'] = {
+			'folder': '',
+			'read': False,
+			'write': False
+		}
+
+
+	#check if tweet in cache - start
+	if( len(extraParams['cache']['folder']) != 0  and extraParams['cache']['read'] ):
+		print('\tcache read')
+		finalTweetsColDict = readTwtCache(extraParams['cache']['folder'], tweetConvURI)
+
+	if( extraParams['cache']['read'] and len(finalTweetsColDict) == 0 ):
+		print('\tcache MISS')
+	
+	elif( len(finalTweetsColDict) != 0 ):
+		print('\tcache HIT')
+		return finalTweetsColDict
+	#check if tweet in cache - end
+
+	closeBrowerFlag = True
+	reportErrorFlag = False
 	if( tweetConvMaxTweetCount < 1 ):
 		tweetConvMaxTweetCount = 100
 
@@ -1651,80 +1841,180 @@ def extractTweetsFromTweetURI(tweetConvURI, tweetConvMaxTweetCount=100, maxNoMor
 	if( 'windowHeight' not in extraParams ):
 		extraParams['windowHeight'] = 380
 
+	if( 'closeBrowerFlag' in extraParams ):
+		closeBrowerFlag = extraParams['closeBrowerFlag']
+
+	if( 'reportError' in extraParams ):
+		reportErrorFlag = extraParams['reportError']
+
 	if( 'driver' in extraParams ):
 		driver = extraParams['driver']
+		print('\tusing user-supplied driver')
 	else:
 		driver = webdriver.Chrome(executable_path=chromedriverPath)
 		driver.set_window_size(extraParams['windowWidth'], extraParams['windowHeight'])
-		
 		if( 'windowX' in extraParams and 'windowY' in extraParams ):
 			driver.set_window_position(extraParams['windowX'], extraParams['windowY'] )
 
+
 	try:
-		
 		#driver.maximize_window()
-		driver.get(tweetConvURI)		
+		driver.get(tweetConvURI)
 	except:
 		print('\tsupplied chromedriverpath:', chromedriverPath)
 		print('\t\ttweetConvURI:', tweetConvURI)
 		genericErrorInfo()
+		if( reportErrorFlag ):
+			return {
+				'error': True,
+				'self': tweetConvURI
+			}	
+
 		return {}
 
 
-	finalTweetsColDict = {}
-	extractTweetsMain(
+	finalTweetsColDict = recursiveExtractTweetsMain(
 		driver=driver, 
-		finalTweetsColDict=finalTweetsColDict, 
 		tweetConvURI=tweetConvURI, 
 		tweetConvMaxTweetCount=tweetConvMaxTweetCount, 
-		maxNoMoreTweetCounter=maxNoMoreTweetCounter
+		maxNoMoreTweetCounter=maxNoMoreTweetCounter,
+		extraParams=extraParams
 	)
-	driver.quit()
+	
+	validFileFlag = False
+	if( len(finalTweetsColDict) != 0 ):
+		validFileFlag = True
 
+	#anomaly: not closing browser only seems to work when the user supplies the driver
+	if( closeBrowerFlag ):
+		driver.quit()
+	
+	finalTweetsColDict['self'] = tweetConvURI
+
+	#update cache - start
+	if( len(extraParams['cache']['folder']) != 0  and extraParams['cache']['write'] and validFileFlag ):
+		print('\tupdating cache')
+		writeTwtCache(extraParams['cache']['folder'], tweetConvURI, finalTweetsColDict)
+	#update cache - end
 	return finalTweetsColDict
 
-def extractTweetsMain(driver, finalTweetsColDict, tweetConvURI, tweetConvMaxTweetCount=100, maxNoMoreTweetCounter=2):
+def twitterGetTweetFromMoment(uri='', twitterHTMLPage='', maxSleepInSeconds=0):
+
+	if( len(twitterHTMLPage)==0 ):
+		twitterHTMLPage = dereferenceURI(uri, maxSleepInSeconds)
+
+	try:
+		soup = BeautifulSoup(twitterHTMLPage, 'html.parser')
+	except:
+		genericErrorInfo()
+		return {}
+
+	moments = soup.findAll('div', {'class': 'MomentCapsuleItemTweet'})
+	tweetsLst = {
+		'self': uri,
+		'payload': [],
+		'category': '',
+		'pub-datetime': '',
+		'description': '',
+		'timestamp': getNowTime()
+	}
+
+	commonAccessors = {
+		'category': {'class': 'MomentCapsuleSubtitle-category', 'tag': 'span'},
+		'pub-datetime': {'class': 'MomentCapsuleSubtitle-context', 'tag': 'span'},
+		'description': {'class': 'MomentCapsuleCover-description', 'tag': 'div'}
+	}
+
+	for common, dets in commonAccessors.items():
+		relAbsTime = soup.find(dets['tag'], {'class': dets['class']})
+		if( relAbsTime is not None ):
+			tweetsLst[common] = relAbsTime.text.strip()
+
+	for moment in moments:
+		tweet = twitterGetTweetIfExist(moment)
+		if( len(tweet) != 0 ):
+			tweetsLst['payload'].append(tweet)
+	
+	return tweetsLst
+
+def prepTwtsForRetrn(finalTweetsColDict, tweets):
+	for key, val in tweets.items():
+		finalTweetsColDict[key] = val
+
+def recursiveExtractTweetsMain(driver, tweetConvURI, finalTweetsColDict=None, tweetConvMaxTweetCount=100, maxNoMoreTweetCounter=2, extraParams=None):
 
 	#set maxNoMoreTweetCounter to -1 if you don't want any scroll
-	print('\nextractTweetsMain()')
+	print('\nrecursiveExtractTweetsMain()')
+	print('\turi:', tweetConvURI)
 
 	tweetConvURI = tweetConvURI.strip()
 	if( len(tweetConvURI) == 0 ):
-		return
+		return {}
+
+	if( extraParams is None ):
+		extraParams = {}
+
+	if( 'maxNoMoreTweetCounter' not in extraParams ):
+		extraParams['maxNoMoreTweetCounter'] = maxNoMoreTweetCounter
+
+	if( 'dedupSet' not in extraParams ):
+		extraParams['dedupSet'] = set()
 
 	if( tweetConvMaxTweetCount < 1 ):
 		tweetConvMaxTweetCount = 100
 
-	finalTweetsColDictPrevLen = len(finalTweetsColDict)
-	print('\ttweets:', finalTweetsColDictPrevLen)
+	if( finalTweetsColDict is None ):
+		finalTweetsColDict = {}
+		finalTweetsColDict['is-thread'] = False
+		finalTweetsColDict['tweets'] = []
+
+
+	finalTweetsColDictPrevLen = len(finalTweetsColDict['tweets'])
+
+	print('\ttweet count:', finalTweetsColDictPrevLen)
 	print('\tmaxNoMoreTweetCounter:', maxNoMoreTweetCounter)
-	#randSleep()
+	print('\ttweetConvMaxTweetCount:', tweetConvMaxTweetCount)
+	
 
 	try:
 		clickShowMore(driver)
 		twitterHTMLPage = driver.page_source.encode('utf-8')
-		tweets = twitterGetDescendants(twitterHTMLPage)
+		tweets = twitterGetDescendants(twitterHTMLPage, uri=tweetConvURI)
 
-		for tweetId in tweets:
+		for twt in tweets['tweets']:
+			if( twt['data-tweet-id'] in extraParams['dedupSet'] ):
+				continue
+			
+			extraParams['dedupSet'].add( twt['data-tweet-id'] )
+			finalTweetsColDict['tweets'].append( twt )
 
-			if( tweetConvMaxTweetCount == 0 or len(finalTweetsColDict) < tweetConvMaxTweetCount ):
-				#indicates unrestricted descendants length
-				finalTweetsColDict[tweetId] = tweets[tweetId]
-			else:
-				print('\treached threshold');
-				return
+		if( len(tweets['tweets']) > tweetConvMaxTweetCount ):
+			print('\tinput limit reached:', tweetConvMaxTweetCount)
+			
+			#get proper count of tweets, since tweets sets retrieved in different sessions may have identical pos values
+			prepTwtsForRetrn(finalTweetsColDict, tweets)
+			finalTweetsColDict['tweets'] = finalTweetsColDict['tweets'][:tweetConvMaxTweetCount]
+			return finalTweetsColDict
 
-		if( finalTweetsColDictPrevLen == len(finalTweetsColDict) ):
+		if( finalTweetsColDictPrevLen == len(finalTweetsColDict['tweets']) ):
 			maxNoMoreTweetCounter -= 1
+		else:
+			print('\tresetting maxNoMoreTweetCounter to:', maxNoMoreTweetCounter)
+			maxNoMoreTweetCounter = extraParams['maxNoMoreTweetCounter']
 
 		if( maxNoMoreTweetCounter < 1 ):
-			print('\tno more tweets, breaking')
-			return
+			print('\tno more tweets, breaking after tweets count:', len(finalTweetsColDict['tweets']))
+			
+			#get proper count of tweets, since tweets sets retrieved in different sessions may have identical pos values
+			prepTwtsForRetrn(finalTweetsColDict, tweets)
+			return finalTweetsColDict
 
 		scrollDown(driver, tweetConvURI)
-		extractTweetsMain(driver, finalTweetsColDict, tweetConvURI, tweetConvMaxTweetCount, maxNoMoreTweetCounter)
+		recursiveExtractTweetsMain(driver, tweetConvURI, finalTweetsColDict, tweetConvMaxTweetCount, maxNoMoreTweetCounter, extraParams)
 	except:
 		genericErrorInfo()
+
+	return finalTweetsColDict
 	
 def clickShowMore(driver):
 
@@ -1772,37 +2062,65 @@ def clickShowMore(driver):
 			print('\tclickShowMore() - click:', len(clickMoreElmts))
 	'''
 
-def scrollDown(driver, uri, maxScroll=15, sleepSeconds=1):#15, 1
+def scrollDown(driver, uri):
 	
 	if( uri.find('/status/') != -1 ):
-		#this function doesn't work in firefox
+		
+		'''
+		#obsolete: this function doesn't work in firefox and scrollIntoView() did not work
+		maxScroll = 15
+		sleepSeconds = 1
 		actions = ActionChains(driver)
 		for i in range(maxScroll):
 			actions.send_keys(Keys.SPACE).perform()
 			print('\tscrollDown():', i, 'of', maxScroll)
 			time.sleep(sleepSeconds)
+		'''
+
+		script = '''
+			var tweets = document.getElementsByClassName('tweet');
+			if( tweets.length != 0 )
+			{
+				tweets[tweets.length-1].scrollIntoView();
+			}
+		'''
+
+		script = '''
+			var flexMods = document.getElementsByClassName('flex-module-inner');
+			if( flexMods.length != 0 )
+			{
+				flexMods[flexMods.length-1].scrollIntoView();
+			}
+		'''
+		driver.execute_script(script)
 	else:
 		driver.execute_script('window.scrollTo(0, document.body.scrollHeight);')
 
-def twitterGetDescendants(twitterHTMLPage):
+def twitterGetDescendants(twitterHTMLPage, uri='', extraParams=None):
 
 	if( len(twitterHTMLPage) == 0 ):
 		return {}
 	
+	if( extraParams is None ):
+		extraParams = {}
 
-	tweetsLst = [];
+	tweetsLst = []
 	tweetCounter = 0
-	rootTwtID = ''
-	isThreadPresent = False
+	rootTwt = {}
+	isImplicitThreadPresent = False
 	conversationMarker = False
+	threadTypes = []
 	
 
 	soup = BeautifulSoup(twitterHTMLPage, 'html.parser')
 	tweets = soup.find_all(class_='tweet')
+	uriDets = twitterGetURIDetails(uri)
 
 	#method 1 of identifying threads: check if this is a conversation thread - start
 	if( soup.find(class_='ThreadedConversation--selfThread') is not None ):
+		#this marker seems not usually present when thread is accessed from some children
 		conversationMarker = True
+		threadTypes.append('explicit')#CAUTION MOVING THIS STATMENT, POSITION SENSITIVE for threadTypes
 	#method 1 of identifying threads: check if this is a conversation thread - end
 
 	for i in range(len(tweets)):
@@ -1813,37 +2131,118 @@ def twitterGetDescendants(twitterHTMLPage):
 
 			tweets[i]['pos'] = tweetCounter		
 			if( conversationMarker ):
-				tweets[i]['in-explicit-thread'] = recursiveIsTwtInSelfChain( tweetHtml );
+				tweets[i]['extra']['in-explicit-thread'] = recursiveIsTwtInSelfChain( tweetHtml );
 				#special case since head of thread is not part of self chain
 				if( tweets[i]['data-conversation-id'] == tweets[i]['data-tweet-id'] ):
-					tweets[i]['in-explicit-thread'] = True
+					tweets[i]['extra']['in-explicit-thread'] = True
 
-			if( tweets[i]['data-conversation-id'] == tweets[i]['data-tweet-id'] ):
-				rootTwtID = tweets[i]['data-conversation-id']
-			
-			
+			if( len(uriDets) == 2 ):
+				if( tweets[i]['data-conversation-id'] == tweets[i]['data-tweet-id'] ):
+					rootTwt = tweets[i]
+					
+
 			tweetsLst.append( tweets[i] )
 			tweetCounter += 1
 
 	#method 2 of identifying threads - start
 	tweetsLst = sorted(tweetsLst, key=lambda k: k['pos'])
-	isThreadPresent = isTwtsThread(rootTwtID, tweetsLst)
-	#method 2 of identifying threads - eend
-
+	if( len(uriDets) == 2 ):
+		isImplicitThreadPresent = isTwtsThreadMarkImpThread(rootTwt, tweetsLst)
+		if( isImplicitThreadPresent == True ):
+			threadTypes.append('implicit')
+	#method 2 of identifying threads - end
 	
+	if( len(threadTypes) == 2 ):
+		#the presence of explicit thread overrides implicit
+		threadTypes = 'explicit'
+	elif( len(threadTypes) == 1 ):
+		threadTypes = 'implicit'
+	else:
+		threadTypes = ''
+
 	return { 
-		'is-thread': isThreadPresent,
+		'is-thread': isImplicitThreadPresent or conversationMarker,
+		'thread-type': threadTypes,
 		'tweets': tweetsLst
 	}
 
-def isTwtsThread(rootTwtID, tweetsLst):
+def twitterGetURIDetails(uri):
+
+	uriDets = {}
+	uri = uri.split('/status/')
+
+	if( len(uri) == 2 ):
+	
+		screenName = ''
+		screenName = uri[0].split('https://twitter.com/')
+		
+		if( len(screenName) == 2 ):
+			screenName = screenName[1]
+		else:
+			screenName = ''
+		
+		if( len(screenName) != 0 ):
+			uriDets['screenName'] = screenName
+			uriDets['id'] = uri[1]
+
+	return uriDets
+
+def isTwtsThreadMarkImpThread(rootTwt, tweetsLst):
+	
+	if( len(tweetsLst) < 2 ):
+		return False
+
+	threadFlag = False
+	rootTweetPos = -1
+	implicitThreads = []
 
 	for i in range(len(tweetsLst)):
-		if( tweetsLst[i]['data-conversation-id'] == rootTwtID and tweetsLst[i]['data-tweet-id'] != rootTwtID ):
-			#The root tweet in a conversation: data-conversation-id = data-tweet-id
-			#Here means a tweet that is not the root tweet has been found that replied the root tweet
-			return True
-	return False
+		
+		tweetsLst[i]['extra']['in-implicit-thread'] = False
+		if( tweetsLst[i]['data-conversation-id'] != rootTwt['data-conversation-id'] ):
+			continue
+			
+		#The root tweet in a conversation: data-conversation-id = data-tweet-id
+		if( tweetsLst[i]['data-tweet-id'] == rootTwt['data-conversation-id']  ):
+			rootTweetPos = i
+			#e.g., https://twitter.com/KevinMKruse/status/1025944636693651457
+		elif( tweetsLst[i]['data-screen-name'] == rootTwt['data-screen-name']  ):
+			#Here means a tweet that is not the root tweet has been found that replied the root tweet, from the same author
+
+			skipFlag = True
+			if( 'replying-to' in tweetsLst[i]['extra'] ):
+				if( tweetsLst[i]['extra']['replying-to'][0] == rootTwt['data-screen-name'] ):
+					
+					if( len(tweetsLst[i]['extra']['replying-to']) == 1 ):
+						tweetsLst[i]['extra']['in-implicit-thread'] = True
+						skipFlag = False
+						#e.g., https://twitter.com/dtdchange/status/1020855197642510336
+					else:
+						#immediate parent tweet has same author, but disjoint thread replying another tweet
+						#e.g., https://twitter.com/KevinMKruse/status/1029832219727196160	
+						tweetsLst[i]['extra']['nested-implicit-thread'] = True
+			else:
+				#immediate parent tweet has same author, not replying another tweet
+				#e.g., https://twitter.com/KevinMKruse/status/1058093798935400448
+				tweetsLst[i]['extra']['in-implicit-thread'] = True
+				skipFlag = False
+
+			if( skipFlag ):
+				continue
+			
+			
+			threadFlag = True
+			tmp = {}
+			tmp['id'] = tweetsLst[i]['data-tweet-id']
+			tmp['pos'] = i#this pos is different from tweetsLst[i].pos since the latter accounts for tweets that are not members of the thread.
+			implicitThreads.append( tmp )
+			
+
+	if( threadFlag == True and rootTweetPos != -1 ):
+		tweetsLst[rootTweetPos]['extra']['in-implicit-thread'] = True
+		tweetsLst[rootTweetPos]['extra']['reply-group'] = implicitThreads
+	
+	return threadFlag
 
 def isVideoAdaptiveMediaInTweet(tweetDivTag):
 
@@ -1900,7 +2299,7 @@ def getTweetPubDate(tweetURI, tweetHtml):
 		return ''
 
 	tweetDate = ''
-	tweetDict = twitterGetDescendants(tweetHtml)
+	tweetDict = twitterGetDescendants(tweetHtml, uri=tweetURI)
 	
 	if( tweetID in tweetDict ):
 		try:
@@ -1910,27 +2309,6 @@ def getTweetPubDate(tweetURI, tweetHtml):
 			genericErrorInfo()
 
 	return tweetDate
-
-def twitterGetTweetFromMoment(uri='', twitterHTMLPage=''):
-
-	if( len(twitterHTMLPage)==0 ):
-		twitterHTMLPage = dereferenceURI(uri)
-
-	try:
-		soup = BeautifulSoup(twitterHTMLPage, 'html.parser')
-	except:
-		genericErrorInfo()
-		return {}
-
-	moments = soup.findAll('div', {'class': 'MomentCapsuleItemTweet'})
-	tweetsDict = {}
-
-	for moment in moments:
-		tweet = twitterGetTweetIfExist(moment)
-		if( len(tweet) != 0 ):
-			tweetsDict[ tweet['data-tweet-id'] ] = tweet
-	
-	return tweetsDict
 
 def recursiveIsTwtInSelfChain(tweetDiv):
 
@@ -2023,14 +2401,9 @@ def twitterGetTweetIfExist(potentialTweetDiv):
 				tweetDict['extra'].setdefault('replying-to', [])
 				tweetDict['extra']['replying-to'].append( replyAcnts[i]['href'].replace('/', '') )
 
-		if( 'replying-to' in tweetDict['extra'] ):
-			if( len(tweetDict['extra']['replying-to']) != 0 ):
-				if( tweetDict['data-screen-name'] == tweetDict['extra']['replying-to'][0] ):
-					tweetDict['extra']['implicit-thread'] = True
 	#find "Replying to" - start				
 		
 	return tweetDict
-
 
 def isTweetPresent(soup):
 	
@@ -2105,18 +2478,431 @@ def isURIInTweet(link, driver=None, closeBrowserFlag=True, chromedriverPath='/us
 	return tweetPath
 #twitter - end
 
+#sutori - start
+def sutoriGetExLinks(html):
+
+	if( len(html) == 0 ):
+		return []
+
+	payload = []
+
+	try:
+		soup = BeautifulSoup(html, 'html.parser')
+		mainPage = soup.find('', {'class': 'main'})
+
+		if( mainPage is not None ):
+
+			links = mainPage.find_all('a')
+			for l in links:
+				
+				if( l.has_attr('href') == False ):
+					continue
+
+				l['href'] = l['href'].strip()
+				if( len(l['href']) == 0 ):
+					continue
+
+				if( l['href'][0] == '/' ):
+					continue
+
+				if( l['href'].find('https://www.sutori.com/') == 0 ):
+					continue
+
+				payload.append( {'uri': l['href'], 'title': l.text.strip(), 'tag': 'a'} )
+
+			
+			possibleLinks = mainPage.find_all('p')
+			for l in possibleLinks:
+				l = l.text.strip()
+				
+				if( l.find('http') != 0 ):
+					continue
+
+				payload.append( {'uri': l, 'title': '', 'tag': 'p'} )
+
+			imgs = mainPage.find_all('img')
+			for img in imgs:
+				
+				if( img.has_attr('src') == False ):
+					continue
+
+				title = ''
+				if( img.has_attr('alt') ):
+					title = img['alt']
+
+				payload.append( {'uri': img['src'], 'title': title, 'tag': 'img'} )
+	except:
+		genericErrorInfo()
+
+	return payload
+
+def sutoriStopHandler(html, params):
+	
+	print('\n\tsutoriStopHandler()')
+	print('\tparams:', params)
+
+	maxStories = 0
+	if( 'maxStories' in params ):
+		maxStories = params['maxStories']
+
+	output = {}
+	output['stop'] = False
+	output['output'] = []
+
+	try:
+		soup = BeautifulSoup(html, 'html.parser')
+		comStories = soup.findAll('', {'class': 'community-stories'})
+		if( len(comStories) != 0 ):
+			
+			storyBoxes = comStories[0].findAll('div', {'class': 'story-box'})
+			for storyBox in storyBoxes:
+				link = storyBox.find('a', {'class': 'story-link'})
+				
+				if( link is None ):
+					continue
+
+				if( link.has_attr('href') == False ):
+					continue
+
+				link['href'] = link['href'].strip()
+				if( len(link['href']) == 0 ):
+					continue
+
+				if( link['href'][0] == '/' ):
+					link['href'] = 'https://www.sutori.com' + link['href']
+				
+				linkDict = {'story': link['href'], 'title': '', 'author': ''}
+				author = storyBox.find('', {'class': 'story-author-name'})
+				title = storyBox.find('', {'class': 'story-title'})
+
+				if( author is not None ):
+					linkDict['author'] = author.text.strip()
+
+				if( title is not None ):
+					linkDict['title'] = title.text.strip()
+
+				linkDict['pos'] = len(output['output'])
+				output['output'].append( linkDict )
+				outputSize = len(output['output'])
+
+				if( outputSize == maxStories ):
+					output['stop'] = True
+					break
+	except:
+		genericErrorInfo()
+
+	return output
+
+def sutoriSearch(query, chromedriverPath='/Users/renaissanceassembly/bin/chromedriver', maxStories=10):
+	query = query.strip()
+	if( len(query) == 0 ):
+		return {}
+
+	from selenium import webdriver
+	uri = 'https://www.sutori.com/stories/search?query=' + query.replace(' ', '%20')
+	payload = {'self': uri, 'timestamp': getNowTime()}
+	stopHandlerParams = {'maxStories': maxStories}
+
+	print('\nsutoriSearch():')
+	print('\turi:', uri)
+
+	driver = webdriver.Chrome(executable_path=chromedriverPath)
+	driver.set_window_size(1000, 840)
+	extraParams = {
+		'stopHandler': sutoriStopHandler,
+		'stopHandlerParams': stopHandlerParams
+	}
+	res = seleniumLoadPageScrollToEnd(driver, uri, extraParams=extraParams)
+	driver.quit()
+	print('\tres keys:', res.keys())
+	
+	payload['payload'] = []
+	if( 'output' in res ):
+		payload['payload'] = res['output']
+
+	print('\tExtracting links')
+	driver = webdriver.Chrome(executable_path=chromedriverPath)
+	driver.set_window_size(1000, 1000)
+	payloadCount = len(payload['payload'])
+	
+	for i in range(payloadCount):
+		
+		print('\t\t', i, 'of', payloadCount)
+		uri = payload['payload'][i]['story']
+	
+		waitTimeInSeconds = 3
+		extraParams = {'script': 'window.scrollTo(0, document.body.scrollHeight);'}
+		html = seleniumLoadWebpage(driver, uri, closeBrowerFlag=False, waitTimeInSeconds=waitTimeInSeconds, extraParams=extraParams)
+		payload['payload'][i]['links'] = sutoriGetExLinks(html)
+
+	driver.quit()
+	
+
+	return payload
+#sutori - end
+
+#scoop.it - start
+def scoopitExtractTopics(uri, html, container, page, topicMaxPages, extraParams=None):
+
+	print('\nscoopitExtractTopics():')
+	print('\turi:', uri)
+
+	if( len(html) == 0 ):
+		return False
+
+	if( extraParams is None ):
+		extraParams = {}
+
+	try:
+		soup = BeautifulSoup(html, 'html.parser')
+		topics = soup.findAll('div', {'class': 'theme'})
+
+		if('maxTopics' in extraParams):
+			topics = topics[:extraParams['maxTopics']]
+
+		if( len(topics) == 0 ):
+			print('\tno more topics, returning')
+			return True
+
+		for i in range(len(topics)):
+			
+			print('\t\ttopic', i, 'of', len(topics))
+			title = topics[i].find('div', {'class': 'theme-title'})
+			if( title is None ):
+				continue
+
+			title = title.find('a')
+			if( title is None ):
+				continue
+			
+			linkDct = {}
+			if( title.has_attr('href') == False ):
+				continue
+
+			linkDct['uri'] = title['href']
+			linkDct['title'] = title.text.strip()
+			linkDct['curated-by'] = {}
+			linkDct['posts'] = []
+
+			for j in range(1, topicMaxPages+1):
+				print('\t\t\tpage', j, 'of', topicMaxPages)
+				print('\t\t\turi:', linkDct['uri'])
+				html = dereferenceURI(linkDct['uri'], 3)
+
+				if( j == 1 ):
+					linkDct['curated-by'] = scoopitGetTopicCurator(html)
+
+				noMoreFlag = scoopitExtractPosts(linkDct['uri'], html, linkDct['posts'], j)
+				if( noMoreFlag ):
+					print('\t\t\tno more scoops for topic, breaking')
+					print()
+		
+			container.append( linkDct )
+	except:
+		genericErrorInfo()
+
+	return False
+
+def scoopitGetTopicCurator(html):
+
+	try:
+		soup = BeautifulSoup(html, 'html.parser')
+		soup = soup.find('div', {'id': 'themeAuthor'})
+		
+		if( soup is None ):
+			return {}
+			
+		soup = soup.find('a')
+		if( soup is None ):
+			return {}
+
+		author = {'uri': '', 'name': ''}
+		author['name'] = soup.text.strip()
+		if( soup.has_attr('href') ):
+			
+			author['uri'] = soup['href'].strip()
+			if( len(author['uri']) != 0 ):
+				if( author['uri'][0] == '/' ):
+					author['uri'] = 'https://www.scoop.it' + author['uri']
+		
+		return author
+	except:
+		genericErrorInfo
+
+	return {}
+
+
+def scoopitExtractPosts(uri, html, container, page):
+
+	if( len(html) == 0 ):
+		return False
+	
+	searchFlag = True
+	pageTitle = ''
+	if( uri.find('https://www.scoop.it/search') == -1 ):
+		searchFlag = False
+		pageTitle = getPageTitle(uri=uri, html=html)
+
+	try:
+		soup = BeautifulSoup(html, 'html.parser')
+		posts = soup.findAll('div', {'class': 'post'})
+
+		if( len(posts) == 0 ):
+			print('\tno more scoops, returning\n')
+			return True
+
+		for post in posts:
+			
+			link = post.find('h2', {'class': 'postTitleView'})
+			postUser = post.find('table', {'class': 'posthistory'})
+			postCreationDate = post.find('div', {'class': 'post-metas'})
+			if( link is None ):
+				continue
+
+			link = link.find('a', {'rel': 'nofollow'})
+			if( link is None ):
+				continue
+
+			linkDct = {}
+			linkDct['title'] = link.text.strip()
+			linkDct['uri'] = ''
+			
+			if( link.has_attr('href') == False ):
+				continue
+			
+			linkDct['scooped-by'] = {}
+			linkDct['scooped-onto'] = {}
+			linkDct['creation-date'] = ''
+			linkDct['uri'] = link['href']
+
+			#get post creation date - start
+			if( postCreationDate is not None ):
+				
+				postCreationDate = postCreationDate.find_all('a')
+				if( len(postCreationDate) != 0 ):
+					
+					postCreationDate = postCreationDate[-1]
+					if( postCreationDate.has_attr('href') ):
+						linkDct['creation-date'] = postCreationDate.text.strip()
+			#get post creation date - end
+
+			if( postUser is not None ):
+				postUser = postUser.findAll('a')
+				if( len(postUser) > 1 ):
+					
+					if( searchFlag ):
+						if( postUser[-2].has_attr('href') ):
+							linkDct['scooped-by']['name'] = postUser[-2].text.strip()
+							linkDct['scooped-by']['uri'] = postUser[-2]['href'].strip()
+
+						if( postUser[-1].has_attr('href') ):
+							linkDct['scooped-onto']['name'] = postUser[-1].text.strip()
+							linkDct['scooped-onto']['uri'] = postUser[-1]['href'].strip()
+					else:
+						if( postUser[-1].has_attr('href') ):
+							linkDct['scooped-by']['name'] = postUser[-1].text.strip()
+							linkDct['scooped-by']['uri'] = postUser[-1]['href']
+
+						linkDct['scooped-onto']['name'] = pageTitle
+						linkDct['scooped-onto']['uri'] = uri
+
+					for uriOpt in ['scooped-by', 'scooped-onto']:
+						if( 'uri' in linkDct[uriOpt] ):
+							if( len(linkDct[uriOpt]['uri']) != 0 ):
+								if( linkDct[uriOpt]['uri'][0] == '/' ):
+									linkDct[uriOpt]['uri'] = 'https://www.scoop.it' + linkDct['scooped-by']['uri']
+					'''
+					if( 'uri' in linkDct['scooped-onto'] ):
+						if( len(linkDct['scooped-onto']['uri']) != 0 ):
+							if( linkDct['scooped-onto']['uri'][0] == '/' ):
+								linkDct['scooped-onto']['uri'] = 'https://www.scoop.it' + linkDct['scooped-onto']['uri']
+					'''
+			
+
+			linkDct['page'] = page
+			linkDct['rank'] = len(container) + 1
+			container.append(linkDct)
+	except:
+		genericErrorInfo()
+
+	return False
+
+def scoopitSearch(query, SERPMaxPages=1, postVerticalFlag=True, topicMaxPages=1, extraParams=None):
+	
+	print('\nscoopitSearch():')
+	query = query.strip()
+	payload = {
+		'self': '',
+		'payload': [],
+		'max-pages': SERPMaxPages
+	}
+
+	if( len(query) == 0 ):
+		return payload
+
+	if( extraParams is None ):
+		extraParams = {}
+
+	query = query.replace(' ', '+')
+	if( SERPMaxPages < 1 ):
+		SERPMaxPages = 1 
+
+	vertical = ''
+	if( postVerticalFlag ):
+		vertical = 'post'
+	else:
+		vertical = 'topic'
+
+
+	for i in range(1, SERPMaxPages+1):
+		
+		uri = 'https://www.scoop.it/search?q=' + query + '&type=' + vertical
+		payload['self'] = uri
+		uri = uri + '&page=' + str(i)
+		
+		print('\turi:', uri)
+		html = dereferenceURI(uri)
+		if( len(html) == 0 ):
+			return payload
+		
+		noMoreFlag = False
+		if( vertical == 'post' ):
+			print('\textracting posts')
+			noMoreFlag = scoopitExtractPosts(uri, html, payload['payload'], i)
+		else:
+			noMoreFlag = scoopitExtractTopics(uri, html, payload['payload'], i, topicMaxPages, extraParams=extraParams)
+
+		if( noMoreFlag ):
+			print('\tnoMoreFlag set, breaking')
+			break
+
+		print()
+
+	payload['timestamp'] = getNowTime()
+	payload['scoop-count'] = len(payload['payload'])
+	return payload
+#scoop.it - end
+
 
 #reddit - start
-def redditSearch(query, subreddit='', maxPages='', extraFieldsDict={}):
+def redditSearch(query, subreddit='', maxPages='', extraFieldsDict=None, extraParams=None):
 
-	print('\nredditExpand() - start')
+	print('\nredditSearch() - start')
 
 	query = query.strip()
 	subreddit = subreddit.strip()
 	maxPages = str(maxPages).strip()
+	sortFlag = ''
+	randSleep = 0
 
 	if( len(maxPages) == 0 ):
 		maxPages = 0
+
+	if( extraFieldsDict is None ):
+		extraFieldsDict = {}
+
+	if( extraParams is None ):
+		extraParams = {}
 
 	try:
 		maxPages = int(maxPages)
@@ -2124,22 +2910,45 @@ def redditSearch(query, subreddit='', maxPages='', extraFieldsDict={}):
 		genericErrorInfo()
 		maxPages = 0
 
+
 	if( len(query) == 0 ):
-		return []
+		return {}
 
 	if( len(subreddit) != 0 ):
 		subreddit = 'r/' + subreddit + '/'
 
+
+	if( 'sort' in extraParams ):
+		extraParams['sort'] = extraParams['sort'].strip()
+		if( len(extraParams['sort']) != 0 ):
+			#default is: relevance, 
+			#other options: top, new, comments
+			sortFlag = '&sort=' + extraParams['sort']
+			print('\tsort:', extraParams['sort'])
+
+	if( 'maxSleep' in extraParams ):
+		randSleep = extraParams['maxSleep']
+
+	if( 'maxResults' not in extraParams ):
+		extraParams['maxResults'] = -1
+
 	print('\tquery:', query)
 	print('\tsubreddit:', subreddit)
 	afterFlag = ''
-	collection = []
+	collection = {
+		'payload': [], 
+		'stats': {'serp-link-dist': {}}
+	}
+	breakFlag = False
+
 	try:
 		while True:
 			print()
-			redditQuery = 'https://www.reddit.com/' + subreddit +  'search.json?q=' + quote(query) + afterFlag
-			redditJson = getDictFromJson( dereferenceURI(redditQuery) )
-			
+			redditQuery = 'https://www.reddit.com/' + subreddit +  'search.json?q=' + quote(query) + sortFlag + afterFlag
+			collection['self'] = redditQuery
+			redditJson = getDictFromJson( dereferenceURI(redditQuery, randSleep) )
+			collection['timestamp'] = getNowTime().replace('T', ' ')
+
 			print('\tredditQuery:', redditQuery)
 
 			if( 'data' not in redditJson ):
@@ -2149,40 +2958,43 @@ def redditSearch(query, subreddit='', maxPages='', extraFieldsDict={}):
 			redditJson = redditJson['data']
 
 			for child in redditJson['children']:
-				child = child['data']
-
+				
 				try:
-					creationDate = datetime.utcfromtimestamp(child['created_utc'])
-					#creationDate = creationDate.strftime("%b") + ' ' + creationDate.strftime('%m') + ', ' + creationDate.strftime('%Y')
 
-					tempDict = {}
-					tempDict['datetime'] = creationDate.isoformat()
-					tempDict['link'] = child['url']
-					tempDict['snippet'] = child['selftext']
-					tempDict['title'] = child['title']
-					
-					tempDict['custom'] = {
-						'author': child['author'], 
-						'subreddit': child['subreddit'], 
-						'permalink': 'https://www.reddit.com' + child['permalink']
-					}
+					tempDict = redditSetCommonDets( child['data'] )
+					tempDict['kind'] = ''
+					if( 'kind' in child ):
+						tempDict['kind'] = redditKindTraslate(child['kind'])
 
+					tempDict['links'] = redditGetAllLinksFromCommentHTML( child['data']['selftext_html'] )
 					for key, value in extraFieldsDict.items():
 						tempDict[key] = value
 
-					collection.append(tempDict)
+					linkDistCount = len(tempDict['links'])
+					collection['stats']['serp-link-dist'].setdefault(linkDistCount, 0)
+					collection['stats']['serp-link-dist'][linkDistCount] += 1
 
-					print('\t\tauthor:', child['author'])
-					print('\t\ttitle:', child['title'])
-					print('\t\tcreated:', creationDate)
-					print('\t\turl:', child['url'])
-					print('\t\tsubreddit:', child['subreddit'])
-					print()
+					collection['payload'].append(tempDict)
+
+					if( len(collection['payload']) == extraParams['maxResults'] ):
+						breakFlag = True
+						print('\tmax results breaking:', extraParams['maxResults'])
+						break
+
+					'''
+						print('\t\tauthor:', child['author'])
+						print('\t\ttitle:', child['title'])
+						print('\t\tsubreddit:', child['subreddit'])
+						print()
+					'''
 				except:
 					genericErrorInfo()
 			
 			maxPages -= 1
 			print('\tmaxPages:', maxPages)
+
+			if( breakFlag ):
+				break
 			
 			if( maxPages > 0 and redditJson['after'] ):
 				afterFlag = '&after=' + redditJson['after']
@@ -2192,136 +3004,464 @@ def redditSearch(query, subreddit='', maxPages='', extraFieldsDict={}):
 		genericErrorInfo()
 
 	print('redditExpand() - end\n')
-		
+	
 	return collection
 
-def redditGetAllLinksFromCommentHTML(html):
 
-	if( html is None ):
-		return []
+def redditSearchExpand(query, subreddit='', maxPages='', extraFieldsDict=None, extraParams=None):
+	print('\nredditSearchExpand()')
+
+	if( extraFieldsDict is None ):
+		extraFieldsDict = {}
+
+	if( extraParams is None ):
+		extraParams = {}
+	
+	results = redditSearch(
+		query=query,
+		subreddit=subreddit,
+		maxPages=maxPages,
+		extraFieldsDict=extraFieldsDict,
+		extraParams=extraParams
+	)
+
+	if( 'payload' not in results ):
+		return results
+
+	if( 'maxComments' not in extraParams ):
+		extraParams['maxComments'] = -1
+
+	if( 'maxSleep' not in extraParams ):
+		extraParams['maxSleep'] = 2
+
+	jobsLst = []
+	size = len(results['payload'])
+	for i in range(size):
 		
+		if( results['payload'][i]['stats']['comment-count'] == 0 ):
+			continue
+
+		keywords = {
+			'commentURI': results['payload'][i]['custom']['permalink'],
+			'maxLinks': extraParams['maxComments'],
+			'extraParams': extraParams
+		}
+
+		toPrint = ''
+		if( i%10 == 0 ):
+			toPrint = '\t' + str(i) + ' of ' + str(size)
+
+		jobsLst.append({
+			'func': redditGetLinksFromComment,
+			'args': keywords,
+			'misc': i,
+			'print': toPrint
+		})
+
+	print('\textracting comments - start')
+	print('\tjobsLst.len:', len(jobsLst))
+	resLst = parallelTask(jobsLst, threadCount=3)
+	print('\tresLst.len:', len(resLst))
+	print('\textracting comments - end')
+
+	for res in resLst:
+		res['output']['input-uri'] = res['input']['args']['commentURI']
+		indx = res['misc']
+		results['payload'][indx]['custom']['expanded-comments'] = res['output']
+
+		#create link dist - start
+		results['payload'][indx].setdefault('stats', {})
+		results['payload'][indx]['stats'].setdefault('comments-link-dist', {})
+
+		if( 'comments' not in res['output'] ):
+			continue
+
+		for comment in res['output']['comments']:
+			linkCount = len(comment['links'])
+			results['payload'][indx]['stats']['comments-link-dist'].setdefault(linkCount, 0)
+			results['payload'][indx]['stats']['comments-link-dist'][linkCount] += 1
+		#create link dist - end
+	
+	return results
+	
+
+def redditGetAllLinksFromCommentHTML(htmlStr, details=None):
+
+	linksDict = {'links': []}
 	lastIndex = -1
-	linksDict = {}
-	while( True ):
+
+	while( True and htmlStr is not None ):
 		
-		link, lastIndex = getStrBetweenMarkers(html, 'href="', '"', startIndex=lastIndex+1)
+		link, lastIndex = getStrBetweenMarkers(htmlStr, 'href="', '"', startIndex=lastIndex+1)
+		link = link.strip()
+
+		if( len(link) != 0 ):
+			if( link[0] == '/' ):
+				link = 'https://www.reddit.com' + link
+
 		if( lastIndex == -1 ):
 			break
-		else:
-			if( link.find('http') == 0 ):
-				linksDict[link] = True
-	
-	return list(linksDict.keys())
+		elif( link.find('http') == 0 ):
+			linksDict['links'].append( link )
 
-def redditRecursiveTraverseComment(payload, tabCount, detailsDict):
+	'''
+	try:
+		soup = BeautifulSoup(html.unescape(htmlStr), 'html.parser')
+		allLinks = soup.find_all('a')
+
+		
+		for link in allLinks:
+			if( link.has_attr('href') == False ):
+				continue
+
+			link = link['href'].strip()
+			if( len(link) == 0 ):
+				continue
+
+			if( link[0] == '/' ):
+				link = 'https://www.reddit.com' + link
+
+			linksDict['links'].append( link )
+	except:
+		genericErrorInfo()
+	'''
+
+	if( details is None ):
+		return linksDict['links']
+	else:
+		for key, val in details.items():
+			linksDict[key] = val
+	
+	return linksDict
+
+def redditKindTraslate(kind):
+	
+	kinds = {
+		't1': 'comment',
+		't2': 'account',
+		't3': 'link',
+		't4': 'message',
+		't5': 'subreddit',
+		't6': 'award'
+	}
+
+	if( kind in kinds ):
+		return kinds[kind]
+	else:
+		return kind
+
+def redditSetCommonDets(payload):
+
+	result = {}
+	try:
+
+		result['pub-datetime'] = ''
+		if( 'created_utc' in payload ):
+			result['pub-datetime'] = datetime.utcfromtimestamp(payload['created_utc']).isoformat()
+		
+		commonAccessors = {
+			'id': 'id',
+			'parent_id': 'parent-id',
+			'url': 'link',
+			'title': 'title',
+			'selftext': 'snippet',
+			'body': 'text',
+			'depth': 'depth'
+		}
+
+		for pubkey, privkey in commonAccessors.items():
+			if( pubkey in payload ):
+				result[privkey] = payload[pubkey]
+			else:
+				result[privkey] = ''
+
+		if( result['depth'] == '' ):
+			result['depth'] = -1
+
+		result['depth'] += 1
+		
+		
+		result['stats'] = {
+			'score': -1,
+			'comment-count': 0
+		}
+
+		if( 'score' in payload ):
+			result['stats']['score'] = payload['score']
+
+		if( 'num_comments' in payload ):
+			result['stats']['comment-count'] = payload['num_comments']
+
+		
+		result['custom'] = {
+			'author': payload['author'], 
+			'subreddit': payload['subreddit'], 
+			'permalink': 'https://www.reddit.com' + payload['permalink']
+		}
+
+	except:
+		genericErrorInfo()
+
+	return result
+
+def redditAddComments(comment, allComments, maxi=-1, excludeCommentsWithNoLinks=True):
+
+	if( maxi != -1 and len(allComments) >= maxi ):
+		return False
+
+	if( excludeCommentsWithNoLinks ):
+		if( len(comment['links']) == 0 ):
+			if( comment['link'].strip() != '' ):
+				if( isSameLink(comment['link'], comment['custom']['permalink']) == False ):
+					#add comments even though links in comments body is empty, because comments has a link that is not its permalink
+					allComments.append(comment)	
+		else:
+			allComments.append(comment)
+	else:
+		allComments.append(comment)
+
+	return True
+
+def redditRecursiveTraverseComment(payload, tabCount, detailsDict, maxLinks=-1, extraParams=None):
 
 	'''
 		verify recursion, count links, dedup links
-		patch links with just scheme incomplete, move code to genericCommon? or reddit py
+		patch links with just scheme incomplete
 	'''
+
+	if( extraParams is None ):
+		extraParams = {}
+
+	if( 'excludeCommentsWithNoLinks' not in extraParams ):
+		extraParams['excludeCommentsWithNoLinks'] = True
+
 	tab = '\t' * tabCount
 	#print(tab, 'redditRecursiveTraverseComment():')
-
+	
 	if( 'kind' in payload ):
 
 		if( payload['kind'] == 'Listing' ):
 			
 			#print(tab, 'kind: Listing')
 			if( 'data' in payload ):
-				redditRecursiveTraverseComment( payload['data'], tabCount + 1, detailsDict )
+				redditRecursiveTraverseComment( payload['data'], tabCount + 1, detailsDict, maxLinks=maxLinks, extraParams=extraParams )
 
 		elif( payload['kind'] == 't3' ):
 			
 			#print(tab, 'kind: t3 (link)')
 			if( 'data' in payload ):
 				if( 'selftext_html' in payload['data'] ):
-					detailsDict['links'] += redditGetAllLinksFromCommentHTML( payload['data']['selftext_html'] )
+					
+					details = redditSetCommonDets(payload['data'])
+					details['kind'] = redditKindTraslate('t3')
+					comLinkDicts = redditGetAllLinksFromCommentHTML(payload['data']['selftext_html'], details)
+					addFlag = redditAddComments( 
+							comLinkDicts, 
+							detailsDict['comments'], 
+							maxLinks, 
+							excludeCommentsWithNoLinks=extraParams['excludeCommentsWithNoLinks']
+						)
+					if( not addFlag ):
+						return
 		
 		elif( payload['kind'] == 'LiveUpdate' ):
-
+			
 			if( 'data' in payload ):
 				if( 'body_html' in payload['data'] ):
-					detailsDict['links'] += redditGetAllLinksFromCommentHTML( payload['data']['body_html'] )
+					
+					details = redditSetCommonDets(payload['data'])
+					details['kind'] = redditKindTraslate('live-update')
+					comLinkDicts = redditGetAllLinksFromCommentHTML(payload['data']['body_html'], details)
+					addFlag = redditAddComments( 
+							comLinkDicts, 
+							detailsDict['comments'], 
+							maxLinks, 
+							excludeCommentsWithNoLinks=extraParams['excludeCommentsWithNoLinks']
+						)
+					if( not addFlag ):
+						return
 
 		elif( payload['kind'] == 't1' ):
-
+			
 			#print(tab, 'kind: t1 (comment)')
-			detailsDict['comment-count'] += 1
 
 			if( 'data' in payload ):
 
 				if( 'body_html' in payload['data'] ):
-					detailsDict['links'] += redditGetAllLinksFromCommentHTML( payload['data']['body_html'] )
+					
+					details = redditSetCommonDets(payload['data'])
+					details['kind'] = redditKindTraslate('t1')
+					comLinkDicts = redditGetAllLinksFromCommentHTML(payload['data']['body_html'], details)
+					addFlag = redditAddComments( 
+							comLinkDicts, 
+							detailsDict['comments'], 
+							maxLinks, 
+							excludeCommentsWithNoLinks=extraParams['excludeCommentsWithNoLinks']
+						)
+					if( not addFlag ):
+						return
 
 			#comment with possible replies
 				if( 'replies' in payload['data'] ): 
 					if( len(payload['data']['replies']) != 0 ):
-						redditRecursiveTraverseComment( payload['data']['replies'], tabCount + 1, detailsDict )#replies is a listing
+						redditRecursiveTraverseComment( payload['data']['replies'], tabCount + 1, detailsDict, maxLinks=maxLinks, extraParams=extraParams )#replies is a listing
 	
 	elif( 'children' in payload ):
 		#print(tab, 'children')
 		for child in payload['children']:
-			redditRecursiveTraverseComment( child, tabCount + 1, detailsDict )
+			redditRecursiveTraverseComment( child, tabCount + 1, detailsDict, maxLinks=maxLinks, extraParams=extraParams )
 
-def redditGetLinksFromComment(commentURI, maxLinks=0):
+def redditPrlGetLinksFromComment(urisLst, maxLinks=-1, extraParams=None):
 
-	print('\n\tredditGetLinksFromComment(), maxLinks:', maxLinks)
+	urisLstSize = len(urisLst)
+	if( urisLstSize == 0 ):
+		return []
 
+	if( extraParams is None ):
+		extraParams = {}
+
+	jobsLst = []
+	for i in range(urisLstSize):
+		keywords = {
+			'commentURI': urisLst[i],
+			'maxLinks': maxLinks,
+			'extraParams': extraParams
+		}
+
+		toPrint = ''
+		if( i%10 == 0 ):
+			toPrint = '\t' + str(i) + ' of ' + str(urisLstSize)
+
+		jobsLst.append({
+			'func': redditGetLinksFromComment, 
+			'args': keywords,
+			'misc': False,
+			'print': toPrint
+		})
+
+	resLst = parallelTask(jobsLst)
+	for i in range(len(resLst)):
+
+		resLst[i]['output']['input-uri'] = resLst[i]['input']['args']['commentURI']
+		resLst[i] = resLst[i]['output']
+	
+	return resLst
+
+
+def redditGetLinksFromComment(commentURI, maxLinks=-1, extraParams=None):
+
+	print('\n\tredditGetLinksFromComment():')
 	commentURI = commentURI.strip()
 	if( len(commentURI) == 0 ):
-		return []
+		return {}
 
-	indexOfLastSlash = commentURI.rfind('/')
-	if( indexOfLastSlash == -1 ):
-		return []
+	if( extraParams is None ):
+		extraParams = {}
 
-	#from: "https://www.reddit.com/r/worldnews/comments/5nv73m/former_mi6_agent_christopher_steeles_frustration/?ref=search_posts" 
-	#to:   "https://www.reddit.com/r/worldnews/comments/5nv73m/former_mi6_agent_christopher_steeles_frustration.json?ref=search_posts"
-	commentURI = commentURI[:indexOfLastSlash] + '.json' + commentURI[indexOfLastSlash+1:]
+	maxSleepInSeconds = 0
+	if( 'maxSleep' in extraParams ):
+		maxSleepInSeconds = extraParams['maxSleep']
+
+	if( 'addRootComment' not in extraParams ):
+		extraParams['addRootComment'] = False
+
+	print('\taddRootComment:', extraParams['addRootComment'])
+
+	detailsDict = {'comments': []}
+	detailsDict['input-uri'] = commentURI
+
+
+	try:
+		#from: "https://www.reddit.com/r/worldnews/comments/5nv73m/former_mi6_agent_christopher_steeles_frustration/?ref=search_posts" 
+		#to:   "https://www.reddit.com/r/worldnews/comments/5nv73m/former_mi6_agent_christopher_steeles_frustration.json?ref=search_posts"
+		uriPath = urlparse(commentURI).path.strip()
+		if( uriPath.endswith('/') ):
+			commentURI = commentURI.replace(uriPath, uriPath[:-1] + '.json')
+		else:
+			commentURI = commentURI.replace(uriPath, uriPath + '.json')
+	except:
+		genericErrorInfo()
+		return {}
 	
-	detailsDict = {'comment-count': 0, 'links': []}
-	redditCommentJson = getDictFromJson( dereferenceURI(commentURI) )
+	
+	detailsDict['self'] = commentURI
+	detailsDict['timestamp'] = getNowTime().replace('T', ' ')
+
+	redditCommentJson = getDictFromJson( dereferenceURI(commentURI, maxSleepInSeconds) )
 	payloadType = type(redditCommentJson)
 
 	if( payloadType == dict ):		
-		redditRecursiveTraverseComment( redditCommentJson, 1, detailsDict )	
+		redditRecursiveTraverseComment( redditCommentJson, 1, detailsDict, maxLinks=maxLinks, extraParams=extraParams )	
 
 	elif( payloadType == list ):
+		
+		if( len(redditCommentJson) != 2 ):
+			print(' redditGetLinksFromComment(): unexpected size ' + str(len(redditCommentJson)) * 200)
 
-		for commentThread in redditCommentJson:
-			redditRecursiveTraverseComment( commentThread, 1, detailsDict )
+		if( extraParams['addRootComment'] ):
+			#this adds the parent as the root comment
+			for commentThread in redditCommentJson:
+				redditRecursiveTraverseComment( commentThread, 1, detailsDict, maxLinks=maxLinks, extraParams=extraParams )
+		else:
+			redditRecursiveTraverseComment( redditCommentJson[-1], 1, detailsDict, maxLinks=maxLinks, extraParams=extraParams )
 
-	if( maxLinks == 0 ):
-		return detailsDict['links']
-	else:
-		return detailsDict['links'][:maxLinks]
+	detailsDict['total-comments'] = len(detailsDict['comments'])
+	
+	return detailsDict
 #reddit - end
 
 
 #wikipedia - start
-def wikipediaGetExternalLinksDictFromPage(pageURI, maxSleepInSeconds=5):
+def wikipediaGetExternalLinksDictFromPage(pageURI, maxSleepInSeconds=0):
+
+	print('\nwikipediaGetExternalLinksDictFromPage():')
 
 	pageURI = pageURI.strip()
 	if( len(pageURI) == 0 ):
-		return []
+		return {}
 
 	if( getDomain(pageURI).find('wikipedia.org') == -1 ):
-		return []
+		return {}
 
-	dedupDict = {}
-	allLinksFromThisPage = []
+	dedupSet = set()
+	allLinksFromThisPage = {}
 	htmlPage = dereferenceURI(URI=pageURI, maxSleepInSeconds=maxSleepInSeconds)
 	soup = BeautifulSoup( htmlPage, 'html.parser' )
-	allCitations = soup.find( 'div', {'class':'reflist'} )
+	
 
+	'''
+	#old logic to find references, unreliable
+	allCitations = soup.findAll( 'div', {'class':'reflist'} )
+	if( len(allCitations) == 0 ):
+		return {}
+	allCitations = allCitations[-1]
+	'''
+
+	#new logic to find reference
+	allCitations = soup.find('', {'id':'References'} )
 	if( allCitations is None ):
-		return []
+		return {}
+
+	allCitations = allCitations.parent.find_next_sibling()	
+	if( allCitations is None ):
+		return {}
+
+	allCitations.find_next_sibling()
+	if( allCitations is None ):
+		return {}
+
+
 
 	allCitations = allCitations.findAll('li')
-
+	print('\tallCitations:', len(allCitations))
 	if( allCitations is None ):
-		return []
+		return {}
+	
 
+	allLinksFromThisPage['self'] = pageURI
+	allLinksFromThisPage['links'] = []
+	allLinksFromThisPage['timestamp'] = getNowTime().replace('T', ' ')
+	
 	for citation in allCitations:
 		links = citation.findAll('a', {'rel':'nofollow'})
 		for link in links:
@@ -2331,9 +3471,24 @@ def wikipediaGetExternalLinksDictFromPage(pageURI, maxSleepInSeconds=5):
 				if( uri[0] == '/' ):
 					uri = 'http:' + uri
 
-				if( uri not in dedupDict ):
-					allLinksFromThisPage.append( {'link': uri, 'title': link.text.strip()} )
-					dedupDict[uri] = True
+				URIR = getURIRFromMemento(uri)
+				if( URIR == '' ):
+					key = getDedupKeyForURI(uri)
+				else:
+					key = getDedupKeyForURI(URIR)
+
+				if( key not in dedupSet ):
+					
+					dedupSet.add(key)
+					count = len(allLinksFromThisPage['links'])
+					
+					if( URIR == '' ):
+						tmp = {'link': uri, 'title': link.text.strip(), 'pos': count}
+					else:
+						tmp = {'link': URIR, 'memento': uri, 'title': link.text.strip(), 'pos': count}
+
+					allLinksFromThisPage['links'].append( tmp )
+					
 			except:
 				genericErrorInfo()
 
@@ -2375,11 +3530,13 @@ def getDayOfWeek(dateObj):
 
 def parallelProxy(job):
 	
+	output = job['func'](**job['args'])
+
 	if( 'print' in job ):
 		if( len(job['print']) != 0 ):
 			print(job['print'])
 
-	return {'input': job, 'output': job['func'](**job['args']), 'misc': job['misc']}
+	return {'input': job, 'output': output, 'misc': job['misc']}
 
 '''
 	jobsLst: {
@@ -2817,7 +3974,11 @@ def googleGetHTMLPage(searchString, page, siteDirective='', seleniumFlag=False):
 	return googleHTMLPage
 
 #scraper
-def getPayloadDetails(title, crawlDatetime, snippet, rank, page, custom={}):
+def getPayloadDetails(title, crawlDatetime, snippet, rank, page, custom=None):
+	
+	if( custom is None ):
+		custom = {}
+
 	return {
 		'title': title, 
 		'crawl-datetime': crawlDatetime, 
@@ -3096,13 +4257,15 @@ def getListOfDict(linksDict):
 
 #google - end
 
-def getLinks(uri='', html='', commaDelDomainsToExclude='', fromMainTextFlag=True, extraParams={}):
+def getLinks(uri='', html='', commaDelDomainsToExclude='', fromMainTextFlag=True, extraParams=None):
 
 	'''
 	uri = uri.strip()
 	if( len(uri) == 0 ):
 		return []
 	'''
+	if( extraParams is None ):
+		extraParams = {}
 
 	uri = uri.strip()
 	if( len(uri) != 0 ):
@@ -3187,12 +4350,15 @@ def derefURICache(uri, cacheFolder='', lookupCache=True):
 	
 	return html
 
-def dereferenceURI(URI, maxSleepInSeconds=5):
+def dereferenceURI(URI, maxSleepInSeconds=5, extraParams=None):
 	
 	#print('dereferenceURI():', URI)
 	URI = URI.strip()
 	if( len(URI) == 0 ):
 		return ''
+
+	if( extraParams is None ):
+		extraParams = {}
 	
 	htmlPage = ''
 	try:
@@ -3207,24 +4373,62 @@ def dereferenceURI(URI, maxSleepInSeconds=5):
 		if( maxSleepInSeconds > 0 ):
 			randSleep(maxSleepInSeconds)
 
-		htmlPage = mimicBrowser(URI)
+		extraParams.setdefault('sizeRestrict', 4000000)
+		htmlPage = mimicBrowser(URI, extraParams=extraParams)
 	except:
 		genericErrorInfo()
 	
 	return htmlPage
 
-def getMimeType(uri):
+def naiveChkHTML(uri):
+
+	uri = uri.strip()
+	if( len(uri) == 0 ):
+		return True
+
+	exn = [
+		'tif', 
+		'tiff', 
+		'gif', 
+		'jpeg', 
+		'jpg', 
+		'jif', 
+		'jfif',
+		'jp2', 
+		'jpx', 
+		'j2k', 
+		'j2c',
+		'fpx',
+		'pcd',
+		'png',
+		'pdf',
+		'mp3',
+		'mp4'
+	]
+	
+	scheme, netloc, path, params, query, fragment = urlparse( uri )
+	path = path.split('.')[-1].lower().replace('/', '')
+
+	if( path in exn ):
+		return False
+	else:
+		return True
+
+def getMimeEncType(uri):
 	
 	uri = uri.strip()
 
 	if( len(uri) == 0 ):
-		return ''
+		return ('', None)
+
+	if( naiveChkHTML(uri) ):
+		return ('text/html', None)
 	
 	mime = MimeTypes()
 	mime = mime.guess_type(uri)
 
 	if( mime is None ):
-		return ''
+		return ('', None)
 	else:
 		return mime
 
@@ -3300,24 +4504,36 @@ def makeCurlHeadRequest(uri):
 	output = output.decode('utf-8')
 	return output
 
-def makeHeadRequest(uri):
-	return mimicBrowser(uri, getRequestFlag=False)
+def makeHeadRequest(uri, extraParams=None):
+	return mimicBrowser(uri, getRequestFlag=False, extraParams=extraParams)
 
-def mimicBrowser(uri, getRequestFlag=True):
+def mimicBrowser(uri, getRequestFlag=True, extraParams=None):
 	
 	uri = uri.strip()
 	if( len(uri) == 0 ):
 		return ''
+
+	if( extraParams is None ):
+		extraParams = {}
+
+	extraParams.setdefault('timeout', 10)
+	extraParams.setdefault('sizeRestrict', -1)
 
 	try:
 		headers = getCustomHeaderDict()
 		response = ''
 
 		if( getRequestFlag ):
-			response = requests.get(uri, headers=headers, timeout=10)#, verify=False
+			response = requests.get(uri, headers=headers, timeout=extraParams['timeout'])#, verify=False
+			
+			if( extraParams['sizeRestrict'] != -1 ):
+				if( 'Content-Length' in response.headers ):
+					if( int(response.headers['Content-Length']) > extraParams['sizeRestrict'] ):
+						return 'Exceeded size restriction: ' + str(extraParams['sizeRestrict'])
+					
 			return response.text
 		else:
-			response = requests.head(uri, headers=headers, timeout=10)#, verify=False
+			response = requests.head(uri, headers=headers, timeout=extraParams['timeout'])#, verify=False
 			response.headers['status-code'] = response.status_code
 			return response.headers
 	except:
@@ -3504,16 +4720,15 @@ def dedupLinks(uriLst):
 	return dedupedLst
 
 
-def isSameLinks(left, right):
+def isSameLink(left, right):
 	return getDedupKeyForURI(left) == getDedupKeyForURI(right)
 
-def isURIShort(uri):
+def naiveIsURIShort(uri):
 
 	specialCases = []
 
 	try:
 		scheme, netloc, path, params, query, fragment = urlparse( uri )
-		
 		if( netloc in specialCases ):
 			return True
 
@@ -3531,7 +4746,8 @@ def isURIShort(uri):
 		tld = tld.split('.')
 		if( len(tld) == 1 ):
 			#e.g., tld = 'com', 'ly'
-			if( len(tld[0]) == 2 ):
+			#short: http://t.co (1 dot) not news.sina.cn (2 dots)
+			if( len(tld[0]) == 2 and netloc.count('.') == 1 ):
 				return True
 		else:
 			#e.g., tld = 'co.uk'
@@ -3541,49 +4757,66 @@ def isURIShort(uri):
 
 	return False
 
-def seleniumLoadPageScrollToEnd(driver, uri, waitTimeInSeconds=10, closeBrowerFlag=True, maxScroll=20):
+def seleniumLoadPageScrollToEnd(driver, uri, closeBrowerFlag=True, maxScroll=20, extraParams=None):
 	print('seleniumLoadWebpage():')
 
 	uri = uri.strip()
 	if( len(uri) == 0 ):
-		return ''
+		return {}
+
 	html = ''
-	#directive: consider phantom js but set header
-
-	#driver = webdriver.PhantomJS()
+	output = {}
 	try:
-		#driver = webdriver.Firefox()
-		print('\tgetting:', uri)
 		driver.get(uri)
-		driver.maximize_window()
-
 		prevLength = len(driver.page_source)
+		
 		print('\tprevLength:', prevLength)
 		print('\tscrolling')
+		
 		driver.execute_script('window.scrollTo(0, document.body.scrollHeight);')
-
 		randSleep()
 		scrollCount = 0
-		while( len(driver.page_source) > prevLength and scrollCount != maxScroll ):
-			scrollCount += 1
-			prevLength = len(driver.page_source)
-			print('\tprevLength:', prevLength)
-			print('\tscrolling')
-			driver.execute_script('window.scrollTo(0, document.body.scrollHeight);')
-			randSleep()
 
+		if( 'stopHandler' in extraParams and 'stopHandlerParams' in extraParams ):
+			
+			while( True ):
+				#expects manual exit or result['stop'] trigger whichever comes first
+				scrollCount += 1
+				prevLength = len(driver.page_source)
+				driver.execute_script('window.scrollTo(0, document.body.scrollHeight);')
+			
+				print('\tcurLen-prevlen:', len(driver.page_source) - prevLength)
+				randSleep()
+				result = extraParams['stopHandler']( driver.page_source.encode('utf-8'), extraParams['stopHandlerParams'] )
+				output = result
+				print('\toutputsize:', len(result['output']))
 
-		html = driver.page_source.encode('utf-8')
-		
+				if( result['stop'] ):
+					print('\tstopHandler has initiated stop, stopping')
+					return result
+		else:
+
+			while( len(driver.page_source) > prevLength and scrollCount != maxScroll ):
+				scrollCount += 1
+				prevLength = len(driver.page_source)
+				driver.execute_script('window.scrollTo(0, document.body.scrollHeight);')
+			
+				print('\tcurLen-prevlen:', len(driver.page_source) - prevLength)
+				print('\tscrolling:', scrollCount, 'of', maxScroll)
+
+				randSleep()
+
+		output['html'] = driver.page_source.encode('utf-8')
 		if( closeBrowerFlag ):
 			driver.quit()
 	except:
 		genericErrorInfo()
-		return ''
+		return output
 
-	return html
+	print('\tlast return')
+	return output
 
-def seleniumLoadWebpage(driver, uri, waitTimeInSeconds=10, closeBrowerFlag=True):
+def seleniumLoadWebpage(driver, uri, waitTimeInSeconds=10, closeBrowerFlag=True, extraParams=None):
 	print('seleniumLoadWebpage():')
 
 	uri = uri.strip()
@@ -3591,14 +4824,12 @@ def seleniumLoadWebpage(driver, uri, waitTimeInSeconds=10, closeBrowerFlag=True)
 		return ''
 	html = ''
 
-	#directive: consider phantom js but set header
+	if( extraParams is None ):
+		extraParams = {}
 
-	#driver = webdriver.PhantomJS()
+	#directive: consider phantom js but set header
 	try:
-		#driver = webdriver.Firefox()
 		print('\tgetting:', uri)
-		#driver.set_page_load_timeout(timeoutInSeconds)
-		#driver.set_script_timeout(timeoutInSeconds)
 
 		driver.get(uri)
 		'''
@@ -3610,6 +4841,9 @@ def seleniumLoadWebpage(driver, uri, waitTimeInSeconds=10, closeBrowerFlag=True)
 		if( waitTimeInSeconds > 0 ):
 			print('\tsleeping in seconds:', waitTimeInSeconds)
 			time.sleep(waitTimeInSeconds)
+
+		if( 'script' in extraParams ):
+			driver.execute_script( extraParams['script'] )
 
 		html = driver.page_source.encode('utf-8')
 		
@@ -3655,7 +4889,7 @@ def seleniumScreenShotCommon(driver, outfilename, extraParams):
 			driver.quit()
 
 
-def seleniumSaveScreenshot(driver, uri, outfilename, waitTimeInSeconds=10, extraParams={}):
+def seleniumSaveScreenshot(driver, uri, outfilename, waitTimeInSeconds=10, extraParams=None):
 	#make outfilename blank to close browser
 
 	print('seleniumLoadWebpage():')
@@ -3669,6 +4903,9 @@ def seleniumSaveScreenshot(driver, uri, outfilename, waitTimeInSeconds=10, extra
 		print('\tclosing browser')
 		driver.quit()
 		return True
+
+	if( extraParams is None ):
+		extraParams = {}
 
 	
 	#directive: consider phantom js but set header
@@ -3734,14 +4971,20 @@ def useCarbonDateServer(uri, host='localhost', port='8888'):
 		output = output.decode('utf-8')
 		output = json.loads(output)
 		
-		return output['estimated-creation-date']
+		if( output['uri'] == uri ):
+			return output['estimated-creation-date']
+		else:
+			return ''
 	except:
 		genericErrorInfo()
 
 	return ''
 
 
-def carbonDateServerStartStop(msg='start', extraParams={}):
+def carbonDateServerStartStop(msg='start', extraParams=None):
+
+	if( extraParams is None ):
+		extraParams = {}
 
 	if( 'port' in extraParams ):
 		port = extraParams['port']
@@ -3804,10 +5047,13 @@ def carbonDateServerStartStop(msg='start', extraParams={}):
 		genericErrorInfo()
 
 
-def useCarbonDate(URI, excludeBacklinks=False, excludeArchives=False, port='7777', extraParams={}):
+def useCarbonDate(URI, excludeBacklinks=False, excludeArchives=False, port='7777', extraParams=None):
 
 	flags = []
 	allFlags = []
+
+	if( extraParams is None ):
+		extraParams = {}
 	
 	if( 'excludeGoogle' not in extraParams ):
 		extraParams['excludeGoogle'] = False
@@ -3821,32 +5067,38 @@ def useCarbonDate(URI, excludeBacklinks=False, excludeArchives=False, port='7777
 	if( extraParams['excludeGoogle'] ):
 		allFlags.append('cdGetGoogle')
 
+
 	if( len(allFlags) != 0 ):
 		flags = '-e ' + ' '.join(allFlags)
 		flags = flags.split(' ')
 
-	request = ['docker', 'run', '--rm', '-it', '-p', port + ':' + port, 'oduwsdl/carbondate', './main.py', '-l', 'search', URI] + flags
+
+	request = ['docker', 'run', '-it', '-p', port + ':' + port, 'oduwsdl/carbondate', './main.py', '-l', URI] + flags
 
 	try:
 		output = check_output(request)
 		output = output.decode('utf-8')
 		output = json.loads(output)
+		
+		if( output['uri'] == URI ):
+			return output['estimated-creation-date']
+		else:
+			return ''
 
-		return output['estimated-creation-date']
 	except:
 		genericErrorInfo()
 
 	return ''
 
-def isArchived(uri, mememtoAggregator='http://memgator.cs.odu.edu/'):
+def isArchived(uri, mementoAggregator='http://memgator.cs.odu.edu/'):
 
 	print('\n\tisArchived():')
 	print('\t\turi:', uri)
 	uri = uri.strip()
-	mememtoAggregator = mememtoAggregator.strip()
+	mementoAggregator = mementoAggregator.strip()
 
-	if( len(uri) == 0 or len(mememtoAggregator) == 0 ):
-		print('\tBad request uri or mememtoAggregator')
+	if( len(uri) == 0 or len(mementoAggregator) == 0 ):
+		print('\tBad request uri or mementoAggregator')
 		return False
 
 	#all mementos are archived
@@ -3854,7 +5106,7 @@ def isArchived(uri, mememtoAggregator='http://memgator.cs.odu.edu/'):
 		print('\t\turi-r extracted from memento link:', uri)
 		return True
 
-	if( getMementoCount(uri, mememtoAggregator) > 0 ):
+	if( getMementoCount(uri, mementoAggregator) > 0 ):
 		return True
 	else:
 		return False
@@ -3863,7 +5115,7 @@ def isArchived(uri, mememtoAggregator='http://memgator.cs.odu.edu/'):
 		#directive: get mementoAggregator from config
 		output = ''
 		try:
-			output = check_output(['curl', '-I', '--silent', '-m', '20', mememtoAggregator + 'timemap/json/' + uri])
+			output = check_output(['curl', '-I', '--silent', '-m', '20', mementoAggregator + 'timemap/json/' + uri])
 			output = output.decode('utf-8')
 			output = output.lower()
 		except:
@@ -3889,24 +5141,24 @@ def getURIRFromMemento(memento):
 	else:
 		return memento[indexOfLastScheme:]
 
-def getMementoCount(uri, mememtoAggregator='http://memgator.cs.odu.edu/', timeout='20'):
+def getMementoCount(uri, mementoAggregator='http://memgator.cs.odu.edu/', timeout='20'):
 
 	print('\tgetMementoCount():', uri)
-	#print('\tmememtoAggregator:', mememtoAggregator)
+	#print('\tmementoAggregator:', mementoAggregator)
 	#print('\ttimeout', timeout)
 
 	uri = uri.strip()
-	mememtoAggregator = mememtoAggregator.strip()
+	mementoAggregator = mementoAggregator.strip()
 
-	if( len(uri) == 0 or len(mememtoAggregator) == 0 ):
-		print('\t\tBad request uri or mememtoAggregator')
+	if( len(uri) == 0 or len(mementoAggregator) == 0 ):
+		print('\t\tBad request uri or mementoAggregator')
 		return -1
 
 	#directive: get mementoAggregator from config
 	output = ''
 	mementoCount = 0
 	try:
-		output = check_output(['curl', '-I', '--silent', '-m', str(timeout), mememtoAggregator + 'timemap/json/' + uri])
+		output = check_output(['curl', '-I', '--silent', '-m', str(timeout), mementoAggregator + 'timemap/json/' + uri])
 		output = output.decode('utf-8')
 		output = output.lower()
 	except:
@@ -4206,6 +5458,7 @@ class DocVect(object):
 
 	@staticmethod
 	def buildLexicon(corpus, stopwordsFlag=True, stemFlag=True, punctuationFlag=True):
+		from nltk.stem.porter import PorterStemmer
 
 		stopwordsDict = getStopwordsDict()
 		lexicon = []
@@ -4332,12 +5585,14 @@ class DocVect(object):
 	#credit: https://sites.temple.edu/tudsc/2017/03/30/measuring-similarity-between-texts-in-python/ - start
 	@staticmethod
 	def stemTokens(tokens):
+		from nltk.stem.porter import PorterStemmer
 		stemmer = PorterStemmer()
 		return [stemmer.stem(token) for token in tokens]
 
 	@staticmethod
 	def stemNormalize(text):
-		
+		from nltk.tokenize import word_tokenize#prerequisite is single use of  nltk.download('punkt') # first-time use only
+
 		remove_punct_dict = dict((ord(punct), None) for punct in string.punctuation)
 		text = text.lower()
 		text = text.translate(remove_punct_dict)
@@ -4347,11 +5602,13 @@ class DocVect(object):
 
 	@staticmethod
 	def lemTokens(tokens):
+		from nltk.stem import WordNetLemmatizer#prerequisite is single use of nltk.download('wordnet')
 		lemmer = WordNetLemmatizer()
 		return [lemmer.lemmatize(token) for token in tokens]
 
 	@staticmethod
 	def lemNormalize(text):
+		from nltk.tokenize import word_tokenize#prerequisite is single use of  nltk.download('punkt') # first-time use only
 		remove_punct_dict = dict((ord(punct), None) for punct in string.punctuation)
 		
 		text = text.lower().translate(remove_punct_dict)
@@ -4360,9 +5617,8 @@ class DocVect(object):
 		return DocVect.lemTokens(text)
 
 	#credit: https://sites.temple.edu/tudsc/2017/03/30/measuring-similarity-between-texts-in-python/ - end
-
 	@staticmethod
-	def getTFMatrixFromDocList(oldDocList, params={}):
+	def getTFMatrixFromDocList(oldDocList, params=None):
 
 		if( len(oldDocList) == 0 ):
 			return []
@@ -4376,25 +5632,18 @@ class DocVect(object):
 		if( len(docList) == 0 ):
 			return []
 
+		if( params is None ):
+			params = {}
 
-		if( 'IDF' not in params ):
-			params['IDF'] = {'active': False, 'norm': None}
+		
+		params.setdefault('IDF', {'active': False, 'norm': None})
+		params['IDF'].setdefault('active', False)
+		params['IDF'].setdefault('norm', None)#see TfidfTransformer for options
 
-		if( 'active' not in params['IDF'] ):
-			params['IDF']['active'] = False
-
-		if( 'norm' not in params['IDF'] ):
-			params['IDF']['norm'] = None#see TfidfTransformer for options
-
-		if( 'normalize' not in params ):
-			#normalize TF by vector norm (L2 norm)
-			params['normalize'] = False
-
-		if( 'ngram-range' not in params ):
-			params['ngram-range'] = (1, 1)
-
-		if( 'tokenizer' not in params ):
-			params['tokenizer'] = None
+		params.setdefault('normalize', False)#normalize TF by vector norm (L2 norm)
+		params.setdefault('ngram-range', (1, 1))#normalize TF by vector norm (L2 norm)
+		params.setdefault('tokenizer', None)
+		params.setdefault('verbose', False)
 				
 		np.set_printoptions(threshold=np.nan, linewidth=100)
 		from sklearn.feature_extraction.text import CountVectorizer
@@ -4403,8 +5652,12 @@ class DocVect(object):
 
 		count_vectorizer = CountVectorizer(tokenizer=params['tokenizer'], stop_words='english', ngram_range=params['ngram-range'])
 		term_freq_matrix = count_vectorizer.fit_transform(docList)
+		
 		#sortedVocab = sorted(count_vectorizer.vocabulary_.items(), key=lambda x: x[1])
-		#print('vocab:', count_vectorizer.vocabulary_)
+		#print('sortedVocab:', sortedVocab)
+
+		if( params['normalize'] ):
+			term_freq_matrix = normalize(term_freq_matrix, norm='l2', axis=1)
 
 		if( params['IDF']['active'] ):
 			tfidf = TfidfTransformer( norm=params['IDF']['norm'] )
@@ -4412,16 +5665,16 @@ class DocVect(object):
 
 			tf_idf_matrix = tfidf.transform(term_freq_matrix)
 			dense = tf_idf_matrix.todense()
-		else:			
-			
-			if( params['normalize'] ):
-				matNormalized = normalize(term_freq_matrix, norm='l2', axis=1)
-				dense = matNormalized.todense()
-			else:
-				dense = term_freq_matrix.todense()
+		else:
+			dense = term_freq_matrix.todense()
 		
-		#print('\tgetTFMatrixFromDocList(): not printing dense')
-		#print(dense)
+		if( params['verbose'] ):
+			print('\nDENSE matrix')
+			print(dense)
+		else:
+			#print('\tgetTFMatrixFromDocList(): not printing dense')
+			pass
+			
 
 		dense = dense.tolist()
 		if( 'extra-payload' in params ):
@@ -4545,7 +5798,10 @@ class DocVect(object):
 		return similarityScore
 
 	@staticmethod
-	def getColEntitySimScore(entyLinks, params={}):
+	def getColEntitySimScore(entyLinks, params=None):
+
+		if( params is None ):
+			params = {}
 
 		if( 'sim-coeff' not in params ):
 			#params['sim-coeff'] = 0.3
@@ -4689,7 +5945,7 @@ class DocVect(object):
 			
 			if( X2Norm == 0 or Y2Norm == 0 ):
 				return 0
-				
+
 			return round(np.dot(X, Y)/(X2Norm * Y2Norm), 10)
 		except:
 			genericErrorInfo()
