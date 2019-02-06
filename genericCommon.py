@@ -1262,8 +1262,11 @@ def nlpGetEntitiesFromText(text, host='localhost', iso8601Date='', labelLst=['PE
 		params['normalizedTimeNER'] = False
 	#set default params - start
 
-	if( params['normalizedTimeNER'] and iso8601Date == '' ):
-		iso8601Date = getNowTime().replace(' ', 'T')
+	if( params['normalizedTimeNER'] ):
+		if( iso8601Date == '' ):
+			iso8601Date = getNowTime().replace(' ', 'T')
+	else:
+		iso8601Date = ''
 
 	labelLst = set(labelLst)
 	if( len(iso8601Date) != 0 ):
