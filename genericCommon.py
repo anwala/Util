@@ -2353,8 +2353,9 @@ def twitterGetTweetIfExist(potentialTweetDiv):
 	tweetDict['tweet-time'] = ''
 	tweetDict['user-verified'] = False
 	tweetDict['tweet-links'] = []
-	tweetDict['tweet-stats'] = {};
-	tweetDict['extra'] = {};
+	tweetDict['tweet-stats'] = {}
+	tweetDict['extra'] = {}
+	tweetDict['hashtags'] = []
 	tweetDict['is-video-adaptive-present'] = False
 	uniformAccessAttrs = ['data-conversation-id', 'data-mentions']
 
@@ -2410,7 +2411,21 @@ def twitterGetTweetIfExist(potentialTweetDiv):
 				tweetDict['extra'].setdefault('replying-to', [])
 				tweetDict['extra']['replying-to'].append( replyAcnts[i]['href'].replace('/', '') )
 
-	#find "Replying to" - start				
+	#find "Replying to" - start
+
+	#add hashtags - start
+	hashtags = potentialTweetDiv.findAll(class_='twitter-hashtag')
+	for i in range( len(hashtags) ):
+		tweetDict['hashtags'].append( hashtags[i].text.strip() )
+	#add hashtags - end
+
+	#final formatting - start
+	tweetDict['data-mentions'] = tweetDict['data-mentions'].strip()
+	if( len(tweetDict['data-mentions']) == 0 ):
+		tweetDict['data-mentions'] = []
+	else:
+		tweetDict['data-mentions'] = tweetDict['data-mentions'].split(' ')
+	#final formatting - end		
 		
 	return tweetDict
 
