@@ -1452,6 +1452,23 @@ def getDictFromJsonGZ(path):
 		return {}
 	return getDictFromJson(json)
 
+def gzipTextFile(path, txt):
+	
+	try:
+		with gzip.open(path, 'wb') as f:
+			f.write(txt.encode())
+	except:
+		genericErrorInfo()
+
+def gzipFile(path):
+	
+	try:
+		if( os.path.exists(path + '.gz') == False ):
+			check_output(['gzip', path])
+	except:
+		genericErrorInfo()
+
+
 def getTextFromGZ(path):
 	
 	try:
@@ -1465,14 +1482,21 @@ def getTextFromGZ(path):
 
 	return ''
 
-def writeTextToFile(outfilename, text):
+def writeTextToFile(outfilename, text, extraParams=None):
+	
+	if( extraParams is None ):
+		extraParams = {}
+
+	if( 'verbose' not in extraParams ):
+		extraParams['verbose'] = True
 
 	try:
 		outfile = open(outfilename, 'w')
 		outfile.write(text)
 		outfile.close()
-
-		print('\twriteTextToFile(), wrote:', outfilename)
+		
+		if( extraParams['verbose'] ):
+			print('\twriteTextToFile(), wrote:', outfilename)
 	except:
 		genericErrorInfo()
 
@@ -1582,7 +1606,7 @@ def extractVideoLinkFromTweet(tweetURI, driver=None):
 		quitDriverFlag = False
 
 	try:
-		twitterHTMLPage = seleniumLoadWebpage(driver, tweetURI, waitTimeInSeconds=2, closeBrowerFlag=quitDriverFlag)
+		twitterHTMLPage = seleniumLoadWebpage(driver, tweetURI, waitTimeInSeconds=2, closeBrowserFlag=quitDriverFlag)
 		soup = BeautifulSoup(twitterHTMLPage, 'html.parser')
 	except:
 		genericErrorInfo()
@@ -1839,7 +1863,7 @@ def extractTweetsFromTweetURI(tweetConvURI, tweetConvMaxTweetCount=100, maxNoMor
 		return finalTweetsColDict
 	#check if tweet in cache - end
 
-	closeBrowerFlag = True
+	closeBrowserFlag = True
 	reportErrorFlag = False
 	if( tweetConvMaxTweetCount < 1 ):
 		tweetConvMaxTweetCount = 100
@@ -1850,8 +1874,8 @@ def extractTweetsFromTweetURI(tweetConvURI, tweetConvMaxTweetCount=100, maxNoMor
 	if( 'windowHeight' not in extraParams ):
 		extraParams['windowHeight'] = 380
 
-	if( 'closeBrowerFlag' in extraParams ):
-		closeBrowerFlag = extraParams['closeBrowerFlag']
+	if( 'closeBrowserFlag' in extraParams ):
+		closeBrowserFlag = extraParams['closeBrowserFlag']
 
 	if( 'reportError' in extraParams ):
 		reportErrorFlag = extraParams['reportError']
@@ -1895,7 +1919,7 @@ def extractTweetsFromTweetURI(tweetConvURI, tweetConvMaxTweetCount=100, maxNoMor
 		validFileFlag = True
 
 	#anomaly: not closing browser only seems to work when the user supplies the driver
-	if( closeBrowerFlag ):
+	if( closeBrowserFlag ):
 		driver.quit()
 	
 	finalTweetsColDict['self'] = tweetConvURI
@@ -2280,7 +2304,7 @@ def twitterGetLinksFromTweetDiv(tweetDivTag):
 
 	for link in links:
 		if( link.has_attr('data-expanded-url') ):
-			expandedLinks.append( link['data-expanded-url'].strip() )
+			expandedLinks.append( {'uri': link['data-expanded-url'].strip()} )
 	
 	#grab expanded links from tweet-text - end
 
@@ -2295,7 +2319,7 @@ def twitterGetLinksFromTweetDiv(tweetDivTag):
 		imgAdaptiveMedia = imgAdaptiveMedia.find('img')
 		if( imgAdaptiveMedia is not None ):
 			if( imgAdaptiveMedia.has_attr('src') ):
-				expandedLinks.append( imgAdaptiveMedia['src'].strip() )
+				expandedLinks.append( {'uri': imgAdaptiveMedia['src'].strip()} )
 	#extract embeded images - start
 	#grab expanded links from adaptive media - end
 
@@ -2489,7 +2513,7 @@ def isURIInTweet(link, driver=None, closeBrowserFlag=True, chromedriverPath='/us
 	for urlPrefix in ['url:', '']:
 		print('\t\turi prefix:', urlPrefix)
 		uri = 'https://twitter.com/search?f=tweets&q=' + quote_plus(urlPrefix + link) + '&src=typd'
-		htmlPage = seleniumLoadWebpage(driver, uri, waitTimeInSeconds=1, closeBrowerFlag=False)
+		htmlPage = seleniumLoadWebpage(driver, uri, waitTimeInSeconds=1, closeBrowserFlag=False)
 		soup = BeautifulSoup( htmlPage, 'html.parser' )
 		tweetPath = isTweetPresent(soup)
 
@@ -2656,7 +2680,7 @@ def sutoriSearch(query, chromedriverPath='/Users/renaissanceassembly/bin/chromed
 	
 		waitTimeInSeconds = 3
 		extraParams = {'script': 'window.scrollTo(0, document.body.scrollHeight);'}
-		html = seleniumLoadWebpage(driver, uri, closeBrowerFlag=False, waitTimeInSeconds=waitTimeInSeconds, extraParams=extraParams)
+		html = seleniumLoadWebpage(driver, uri, closeBrowserFlag=False, waitTimeInSeconds=waitTimeInSeconds, extraParams=extraParams)
 		payload['payload'][i]['links'] = sutoriGetExLinks(html)
 
 	driver.quit()
@@ -3535,6 +3559,39 @@ def wikipediaGetExternalLinksFromPage(pageURI, maxSleepInSeconds=5):
 
 
 #misc - start
+
+def valueToFloat(num):
+	
+	if type(num) == float or type(num) == int:
+		return num
+
+	num = num.replace(',', '')
+	multiplier = {
+		'K': 1000.0,
+		'M': 1000000.0,
+		'B': 1000000000.0
+	}
+	
+	for mult, multi in multiplier.items():
+		if mult in num:
+			if len(num) > 1:
+				
+				try:
+					return float(num.replace(mult, '')) * multi
+				except:
+					pass
+
+			return multi
+
+	try:
+		return float(num)
+	except:
+		return 0.0
+
+def myPrint(toPrintStr, printFlag=True):
+	if( printFlag ):
+		print(toPrintStr)
+
 def getDayOfWeek(dateObj):
 	if( isinstance(dateObj, datetime) == False ):
 		return ''
@@ -3953,14 +4010,10 @@ def googleGetHTMLPage(searchString, page, siteDirective='', seleniumFlag=False):
 	if( len(searchString) == 0 ):
 		return ''
 
-
-	'''
-	searchString = searchString.split(' ')
-	queryFragment = ''
-	for token in searchString:
-		queryFragment = queryFragment + token + '+'
-	queryFragment = queryFragment[:-1]
-	'''
+	siteDirective = siteDirective.strip()
+	if( len(siteDirective) != 0 ):
+		siteDirective = '%20' + siteDirective
+	
 
 	searchQueryFragment = 'as_q=' + quote(searchString) + siteDirective
 	if( page > 1 ):
@@ -3987,7 +4040,7 @@ def googleGetHTMLPage(searchString, page, siteDirective='', seleniumFlag=False):
 			from selenium import webdriver
 			driver = webdriver.Firefox()
 			waitSeconds = randint(2, 5)
-			googleHTMLPage = seleniumLoadWebpage(driver, searchQuery, waitTimeInSeconds=waitSeconds, closeBrowerFlag=True)
+			googleHTMLPage = seleniumLoadWebpage(driver, searchQuery, waitTimeInSeconds=waitSeconds, closeBrowserFlag=True)
 		else:
 			googleHTMLPage = dereferenceURI(searchQuery)
 	except:
@@ -4046,10 +4099,10 @@ def addMoreLinks(elm, rank, payload, page):
 			#print('\t\tlink:', link)
 			#print('\t\t\t', title)
 			
-			custom = {'extra-link': True}
+			custom = {'extra-link': True, 'date-auto-gen': True}
 			payload[link] = getPayloadDetails(
 				title=title, 
-				crawlDatetime='', 
+				crawlDatetime=datetime.now().strftime('%b %d, %Y'),
 				snippet='', 
 				rank=float(locRank),
 				page=page,
@@ -4082,7 +4135,7 @@ def googleRetrieveLinksFromPage(googleHTMLSoup, rankAdditiveFactor=0, page=1):
 
 		for resultInstance in liOrDiv:
 
-			if( resultInstance.h3 == None ):
+			if( resultInstance.h3 is None ):
 				#attempt to get more links
 				addMoreLinks(resultInstance, rank, linksDict, page)
 				continue
@@ -4121,13 +4174,18 @@ def googleRetrieveLinksFromPage(googleHTMLSoup, rankAdditiveFactor=0, page=1):
 					crawlDateTime = str(crawlDateTime).replace(' ', 'T')
 				except:
 					#if crawlDateTime does not meet expected format
-					print('googleRetrieveLinksFromPage(): unexpected datetime format:', crawlDateTime)
+					#print('\tgoogleR..Page(): unexpected datetime format:', crawlDateTime)
 					crawlDateTime = str(datetime.now()).split('.')[0].replace(' ', 'T')
 
-			title = resultInstance.h3.a.text
-			titleLink = resultInstance.h3.a['href']
-			titleLink = titleLink.strip()
+			
+			if( resultInstance.h3.a is None ):
+				continue
 
+			title = resultInstance.h3.a.text
+			if( resultInstance.h3.a.has_attr('href') == False ):
+				continue
+
+			titleLink = resultInstance.h3.a['href'].strip()
 			if( titleLink.find('http') != 0 ):
 				continue
 
@@ -4156,26 +4214,50 @@ def googleRetrieveLinksFromPage(googleHTMLSoup, rankAdditiveFactor=0, page=1):
 
 	return linksDict
 
-def googleGetSERPResultsList(query, maxPageToVisit=1, siteDirective='', pathFilenameMinusExtension=''):
+def googleSearch(query, maxPageToVisit=1, directive=''):
 	
 	mergedListOfLinks = []
-	pagePageLinksDict = googleGetSERPResults(query=query, maxPageToVisit=maxPageToVisit, siteDirective=siteDirective, pathFilenameMinusExtension=pathFilenameMinusExtension)
-	sortedPages = sorted( pagePageLinksDict )
+	pagePageLinksDict = googleGetSERPResults(query=query, maxPageToVisit=maxPageToVisit, siteDirective=directive)
+	if( 'links' not in pagePageLinksDict ):
+		return {}
 
+	sortedPages = sorted( pagePageLinksDict['links'] )
 	for page in sortedPages:
-		mergedListOfLinks += pagePageLinksDict[page]
+		mergedListOfLinks += pagePageLinksDict['links'][page]
 
-	'''
 
-		if( len(sortedPages) == 1 ):
-			return pagePageLinksDict[0]
-		else:
-			for i in range(1, len(sortedPages)):
-				page = sortedPages[i]
-				prevPageLastRank = pagePageLinksDict[ page - 1 ]['rank']
-	'''
+	return {
+		'query': query,
+		'extra-params':{
+			'directive': directive,
+			'page-dets': pagePageLinksDict['pageDets']
+		},
+		'max-pages': maxPageToVisit,
+		'timestamp': getNowTime(),
+		'links': mergedListOfLinks
+	}
 
-	return mergedListOfLinks
+def getGoogleSrchResCount(googleHTMLSoup):
+
+	resultStats = googleHTMLSoup.find(id='resultStats')
+	if( resultStats is None ):
+		print('\tgetGoog..ResC.t(): resultStats is None')
+		return -1
+
+	resultStats = resultStats.text.split(' ')
+	if( len(resultStats) < 2 ):
+		print('\tgetGoog..ResC.t(): resultStats < 2', resultStats)
+		return -1
+
+	resultStats = resultStats[1].replace(',', '').strip()
+	try:
+		return int(resultStats)
+	except:
+		print('\tgetGoog..ResC.t(): error parsing int:', resultStats)
+		return -1
+
+def isCaptchaOn(gSoup):
+	return False
 
 def googleGetSERPResults(query, maxPageToVisit=1, siteDirective='', pathFilenameMinusExtension=''):
 	print('\ngoogleGetSERPResults() - start')
@@ -4198,6 +4280,9 @@ def googleGetSERPResults(query, maxPageToVisit=1, siteDirective='', pathFilename
 			,...
 		}
 	'''
+	pageDets = {
+		'result-count': -1
+	}
 	pagePageLinksDict = {}
 	prevLinksDictKeys = []
 	rankAdditiveFactor = 0
@@ -4221,6 +4306,7 @@ def googleGetSERPResults(query, maxPageToVisit=1, siteDirective='', pathFilename
 				genericErrorInfo()
 
 		soup = BeautifulSoup( googleHTMLPage, 'html.parser')
+		pageDets['captch-on'] = isCaptchaOn(soup)
 		'''
 			linksDict format:
 			{
@@ -4229,10 +4315,9 @@ def googleGetSERPResults(query, maxPageToVisit=1, siteDirective='', pathFilename
 			}
 		'''
 		linksDict = googleRetrieveLinksFromPage( soup, rankAdditiveFactor=rankAdditiveFactor, page=page )
-
-		#print('links:')
-		#for link, datetimeVal in linksDict.items():
-		#	print(link, datetimeVal)
+		if( page == 1 ):
+			pageDets['result-count'] = getGoogleSrchResCount(soup)
+		
 
 		if( prevLinksDictKeys == linksDict.keys() ):
 			print('\tDuplicate page:', page, 'stopping')
@@ -4249,7 +4334,10 @@ def googleGetSERPResults(query, maxPageToVisit=1, siteDirective='', pathFilename
 	{ page, {link: crawlDatetime or nowDatetime} }
 	'''
 	print('googleGetSERPResults() - end\n')
-	return pagePageLinksDict
+	return {
+		'links': pagePageLinksDict,
+		'pageDets': pageDets
+	}
 
 def getListOfDict(linksDict):
 
@@ -4291,6 +4379,9 @@ def getLinks(uri='', html='', commaDelDomainsToExclude='', fromMainTextFlag=True
 	if( extraParams is None ):
 		extraParams = {}
 
+
+	extraParams.setdefault('derefFlag', True)
+
 	uri = uri.strip()
 	if( len(uri) != 0 ):
 		if( uri[-1] != '/' ):
@@ -4308,8 +4399,7 @@ def getLinks(uri='', html='', commaDelDomainsToExclude='', fromMainTextFlag=True
 	allLinks = []
 	dedupDict = {}
 	try:
-		if( len(html) == 0 ):
-
+		if( len(html) == 0 and extraParams['derefFlag'] ):
 			html = dereferenceURI(uri, sleepSeconds)
 		
 		if( fromMainTextFlag ):
@@ -4374,6 +4464,9 @@ def derefURICache(uri, cacheFolder='', lookupCache=True):
 	
 	return html
 
+'''
+	Note size limit set to 4MB
+'''
 def dereferenceURI(URI, maxSleepInSeconds=5, extraParams=None):
 	
 	#print('dereferenceURI():', URI)
@@ -4519,15 +4612,13 @@ def parseStrDate(strDate):
 def getCustomHeaderDict():
 
 	headers = {
-		'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.11; rv:38.0) Gecko/20100101 Firefox/38.0',
+		'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_14_3) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/73.0.3683.103 Safari/537.36',
 		'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
 		'Accept-Language': 'en-US,en;q=0.5',
 		'Accept-Encoding': 'gzip, deflate',
 		'Connnection': 'keep-alive',
 		'Cache-Control':'max-age=0'	
 		}
-
-	headers['User-Agent'] = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/53.0.2785.143 Safari/537.36'
 
 	return headers
 
@@ -4540,6 +4631,25 @@ def makeCurlHeadRequest(uri):
 def makeHeadRequest(uri, extraParams=None):
 	return mimicBrowser(uri, getRequestFlag=False, extraParams=extraParams)
 
+def isSizeLimitExceed(responseHeaders, sizeRestrict):
+
+	if( 'Content-Length' in responseHeaders ):
+		if( int(responseHeaders['Content-Length']) > sizeRestrict ):
+			return True
+
+	return False
+
+def downloadSave(response, outfile):
+	
+	try:
+		with open(outfile, 'wb') as dfile:
+			for chunk in response.iter_content(chunk_size=1024): 
+				# writing one chunk at a time to pdf file 
+				if(chunk):
+					dfile.write(chunk) 
+	except:
+		genericErrorInfo()
+
 def mimicBrowser(uri, getRequestFlag=True, extraParams=None):
 	
 	uri = uri.strip()
@@ -4551,22 +4661,36 @@ def mimicBrowser(uri, getRequestFlag=True, extraParams=None):
 
 	extraParams.setdefault('timeout', 10)
 	extraParams.setdefault('sizeRestrict', -1)
+	extraParams.setdefault('headers', getCustomHeaderDict())
+	extraParams.setdefault('addResponseHeader', False)
+
 
 	try:
-		headers = getCustomHeaderDict()
 		response = ''
-
+		reponseText = ''
 		if( getRequestFlag ):
-			response = requests.get(uri, headers=headers, timeout=extraParams['timeout'])#, verify=False
+
+			if( 'saveFilePath' in extraParams ):
+				response = requests.get(uri, headers=extraParams['headers'], timeout=extraParams['timeout'], stream=True)#, verify=False
+			else:
+				response = requests.get(uri, headers=extraParams['headers'], timeout=extraParams['timeout'])#, verify=False
 			
 			if( extraParams['sizeRestrict'] != -1 ):
-				if( 'Content-Length' in response.headers ):
-					if( int(response.headers['Content-Length']) > extraParams['sizeRestrict'] ):
-						return 'Exceeded size restriction: ' + str(extraParams['sizeRestrict'])
-					
-			return response.text
+				if( isSizeLimitExceed(response.headers, extraParams['sizeRestrict']) ):
+					return 'Error: Exceeded size restriction: ' + str(extraParams['sizeRestrict'])
+
+			
+			if( 'saveFilePath' in extraParams ):
+				downloadSave(response, extraParams['saveFilePath'])
+			else:
+				reponseText = response.text
+
+			if( extraParams['addResponseHeader'] ):
+				return	{'responseHeader': response.headers, 'text': reponseText}
+
+			return reponseText
 		else:
-			response = requests.head(uri, headers=headers, timeout=extraParams['timeout'])#, verify=False
+			response = requests.head(uri, headers=extraParams['headers'], timeout=extraParams['timeout'])#, verify=False
 			response.headers['status-code'] = response.status_code
 			return response.headers
 	except:
@@ -4617,14 +4741,9 @@ def isDateBAfterDateA(dateA, dateB, convertToDateTimeObjFlag=False):
 
 	return False
 
-def getUriDepth(uri):
+def getDefaultIndxNames():
 
-	uri = uri.strip()
-	if( len(uri) == 0 ):
-		return -1
-
-	#credit for list: https://support.tigertech.net/index-file-names
-	defaultIndexNames = [
+	return [
 		'index.html',
 		'index.htm',
 		'index.shtml',
@@ -4634,20 +4753,22 @@ def getUriDepth(uri):
 		'index.php3',
 		'index.cgi',
 		'default.html',
+		'default.aspx',
 		'default.htm',
 		'home.html',
 		'home.htm',
-		'Index.html',
-		'Index.htm',
-		'Index.shtml',
-		'Index.php',
-		'Index.cgi',
-		'Default.html',
-		'Default.htm',
-		'Home.html',
-		'Home.htm',
+		'welcome.html',
 		'placeholder.html'
 	]
+
+def getUriDepth(uri):
+
+	uri = uri.strip()
+	if( len(uri) == 0 ):
+		return -1
+
+	#credit for list: https://support.tigertech.net/index-file-names
+	defaultIndexNames = getDefaultIndxNames()
 
 	if( uri[-1] == '/' ):
 		uri = uri[:-1]
@@ -4656,13 +4777,55 @@ def getUriDepth(uri):
 		components = urlparse(uri)
 		path = components.path.split('/')
 
-		if( len(path) == 2 and path[-1] in set(defaultIndexNames) ):
+		if( len(path) == 2 and path[-1].lower() in set(defaultIndexNames) ):
 			return 0
 		else:
 			return len(path) - 1
 	except:
 		genericErrorInfo()
 		return -1
+
+def extractMetaFrmHomepage(html, meta):
+
+	if( len(html) == 0 ):
+		return ''
+
+	try:
+		soup = BeautifulSoup(html, 'html.parser')
+
+		for metaOpt in [meta, 'og:' + meta]:
+			
+			metaTag = soup.find('meta', {'name': meta})
+			if( metaTag is not None ):
+				
+				if( metaTag.has_attr('content') ):
+					return metaTag['content'].strip()
+	except:
+		genericErrorInfo()
+
+	return''
+
+def extractDetsFrmHomepage(uri, maxSleepSeconds=0):
+	
+	uri = uri.strip()
+	if( len(uri) == 0 ):
+		return {}
+
+	dets = {
+		'title': '',
+		'description': '',
+		'keywords': ''
+	}
+
+	html = dereferenceURI(uri, maxSleepSeconds)
+	try:
+		dets['title'] = extractPageTitleFromHTML(html)
+		dets['description'] = extractMetaFrmHomepage(html, 'description')
+		dets['keywords'] = extractMetaFrmHomepage(html, 'keywords')
+	except:
+		genericErrorInfo()
+	
+	return dets
 
 def extractPageTitleFromHTML(html):
 
@@ -4758,7 +4921,7 @@ def isSameLink(left, right):
 
 def naiveIsURIShort(uri):
 
-	specialCases = []
+	specialCases = ['tinyurl.com']
 
 	try:
 		scheme, netloc, path, params, query, fragment = urlparse( uri )
@@ -4790,7 +4953,7 @@ def naiveIsURIShort(uri):
 
 	return False
 
-def seleniumLoadPageScrollToEnd(driver, uri, closeBrowerFlag=True, maxScroll=20, extraParams=None):
+def seleniumLoadPageScrollToEnd(driver, uri, closeBrowserFlag=True, maxScroll=20, extraParams=None):
 	print('seleniumLoadWebpage():')
 
 	uri = uri.strip()
@@ -4840,7 +5003,7 @@ def seleniumLoadPageScrollToEnd(driver, uri, closeBrowerFlag=True, maxScroll=20,
 				randSleep()
 
 		output['html'] = driver.page_source.encode('utf-8')
-		if( closeBrowerFlag ):
+		if( closeBrowserFlag ):
 			driver.quit()
 	except:
 		genericErrorInfo()
@@ -4849,7 +5012,7 @@ def seleniumLoadPageScrollToEnd(driver, uri, closeBrowerFlag=True, maxScroll=20,
 	print('\tlast return')
 	return output
 
-def seleniumLoadWebpage(driver, uri, waitTimeInSeconds=10, closeBrowerFlag=True, extraParams=None):
+def seleniumLoadWebpage(driver, uri, waitTimeInSeconds=10, closeBrowserFlag=True, extraParams=None):
 	print('seleniumLoadWebpage():')
 
 	uri = uri.strip()
@@ -4880,7 +5043,7 @@ def seleniumLoadWebpage(driver, uri, waitTimeInSeconds=10, closeBrowerFlag=True,
 
 		html = driver.page_source.encode('utf-8')
 		
-		if( closeBrowerFlag ):
+		if( closeBrowserFlag ):
 			driver.quit()
 	except:
 		genericErrorInfo()
@@ -5174,6 +5337,22 @@ def getURIRFromMemento(memento):
 	else:
 		return memento[indexOfLastScheme:]
 
+def downloadTimemap(urir):
+
+	urir = urir.strip()
+	if( len(urir) == 0 ):
+		return ''
+
+	request = ['docker', 'run', 'ibnesayeed/memgator', '-f', 'JSON', '-c', 'Alexander C. Nwala (anwala@cs.odu.edu)', urir]
+	
+	try:
+		output = check_output(request)
+		return output.decode('utf-8')
+	except:
+		genericErrorInfo()
+
+	return ''
+
 def getMementoCount(uri, mementoAggregator='http://memgator.cs.odu.edu/', timeout='20'):
 
 	print('\tgetMementoCount():', uri)
@@ -5235,6 +5414,8 @@ def getDedupKeyForURI(uri):
 
 		if( netloc in exceptionDomains ):
 			optionalQuery = query.strip()
+
+		netloc = netloc.replace(':80', '')
 
 		return netloc + path + optionalQuery
 	except:
