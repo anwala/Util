@@ -609,282 +609,308 @@ def getDictFromJson(jsonStr):
 
 	return {}
 
+def getStopwordsSet(frozenSetFlag=False):
+	
+	stopwords = getStopwordsDict()
+	
+	if( frozenSetFlag ):
+		return frozenset(stopwords.keys())
+	else:
+		return set(stopwords.keys())
+
 def getStopwordsDict():
 
 	stopwordsDict = {
-		'i': True,
-		'me': True,
-		'my': True,
-		'myself': True,
-		'we': True,
-		'our': True,
-		'ours': True,
-		'ourselves': True,
-		'you': True,
-		'your': True,
-		'yours': True,
-		'yourself': True,
-		'yourselves': True,
-		'he': True,
-		'him': True,
-		'his': True,
-		'himself': True,
-		'she': True,
-		'her': True,
-		'hers': True,
-		'herself': True,
-		'it': True,
-		'its': True,
-		'itself': True,
-		'they': True,
-		'them': True,
-		'their': True,
-		'theirs': True,
-		'themselves': True,
-		'what': True,
-		'which': True,
-		'who': True,
-		'whom': True,
-		'this': True,
-		'that': True,
-		'these': True,
-		'those': True,
-		'am': True,
-		'is': True,
-		'are': True,
-		'was': True,
-		'were': True,
-		'be': True,
-		'been': True,
-		'being': True,
-		'have': True,
-		'has': True,
-		'had': True,
-		'having': True,
-		'do': True,
-		'does': True,
-		'did': True,
-		'doing': True,
-		'a': True,
-		'an': True,
-		'the': True,
-		'and': True,
-		'but': True,
-		'if': True,
-		'or': True,
-		'because': True,
-		'as': True,
-		'until': True,
-		'while': True,
-		'of': True,
-		'at': True,
-		'by': True,
-		'for': True,
-		'with': True,
-		'about': True,
-		'against': True,
-		'between': True,
-		'into': True,
-		'through': True,
-		'during': True,
-		'before': True,
-		'after': True,
-		'above': True,
-		'below': True,
-		'to': True,
-		'from': True,
-		'up': True,
-		'down': True,
-		'in': True,
-		'out': True,
-		'on': True,
-		'off': True,
-		'over': True,
-		'under': True,
-		'again': True,
-		'further': True,
-		'then': True,
-		'once': True,
-		'here': True,
-		'there': True,
-		'when': True,
-		'where': True,
-		'why': True,
-		'how': True,
-		'all': True,
-		'any': True,
-		'both': True,
-		'each': True,
-		'few': True,
-		'more': True,
-		'most': True,
-		'other': True,
-		'some': True,
-		'such': True,
-		'no': True,
-		'nor': True,
-		'not': True,
-		'only': True,
-		'own': True,
-		'same': True,
-		'so': True,
-		'than': True,
-		'too': True,
-		'very': True,
-		'can': True,
-		'will': True,
-		'just': True,
-		'done': True,
-		'should': True,
-		'would': True,
-		'now': True, #from sklearn stopwords
-		'also': True, 
-		'find': True, 
-		'besides': True, 
-		'neither': True, 
-		'moreover': True, 
-		'elsewhere': True, 
-		'seemed': True, 
-		'amoungst': True, 
-		'cannot': True, 
-		'whereupon': True, 
-		'since': True, 
-		'perhaps': True, 
-		'rather': True, 
-		'must': True, 
-		'thereafter': True, 
-		'whither': True, 
-		'often': True, 
-		'enough': True, 
-		'whose': True, 
-		'toward': True, 
-		'put': True, 
-		'else': True, 
-		'others': True, 
-		'sometime': True, 
-		'go': True, 
-		'everywhere': True,
-		'onto': True, 
-		'yet': True, 
-		'although': True, 
-		'anything': True, 
-		'though': True,
-		'several': True, 
-		're': True, 
-		'amongst': True, 
-		'least': True,
-		'whatever': True, 
-		'thus': True,
-		'across': True, 
-		'beforehand': True, 
-		'anyone': True,
-		'whenever': True, 
-		'ie': True, 
-		'hereupon': True, 
-		'nobody': True, 
-		'beyond': True, 
-		'someone': True, 
-		'along': True, 
-		'take': True, 
-		'therefore': True, 
-		'however': True, 
-		'another': True, 
-		'whether': True, 
-		'anyhow': True, 
-		'within': True, 
-		'anyway': True, 
-		'etc': True,
-		'etc.': True, 
-		'nothing': True, 
-		'somehow': True, 
-		'thereby': True, 
-		'therein': True, 
-		'either': True, 
-		'eg': True, 
-		'e.g': True,
-		'e.g.': True,
-		'towards': True,
-		'via': True,
-		'thru': True, 
-		'already': True, 
-		'keep': True, 
-		'upon': True, 
-		'us': True,
-		'less': True, 
-		'back': True, 
-		'wherein': True, 
-		'afterwards': True, 
-		'whence': True, 
-		'without': True, 
-		'hereby': True, 
-		'whoever': True, 
-		'sometimes': True, 
-		'become': True, 
-		'nevertheless': True, 
-		'amount': True, 
-		'every': True, 
-		'around': True, 
-		'formerly': True, 
-		'inc': True, 
-		'inc.': True,
-		'hereafter': True, 
-		'nowhere': True, 
-		'among': True, 
-		'un': True, 
-		'co': True, 
-		'see': True, 
-		'whereafter': True, 
-		'mine': True, 
-		'anywhere': True, 
-		'much': True, 
-		'next': True, 
-		'whole': True, 
-		'none': True, 
-		'latter': True, 
-		'everything': True, 
-		'can\'t': True,
-		'cant': True, 
-		'behind': True, 
-		'could': True, 
-		'somewhere': True, 
-		'whereas': True, 
-		'ever': True, 
-		'couldn\'t': True,
-		'couldnt': True, 
-		'beside': True, 
-		'still': True, 
-		'may': True, 
-		'seem': True, 
-		'even': True, 
-		'many': True, 
-		'wherever': True, 
-		'except': True, 
-		'alone': True, 
-		'indeed': True, 
-		'describe': True, 
-		'thence': True, 
-		'everyone': True, 
-		'thin': True, 
-		'seems': True,
-		'almost': True, 
-		'throughout': True, 
-		'side': True, 
-		'together': True, 
-		'became': True, 
-		'always': True, 
-		'herein': True, 
-		'mostly': True, 
-		'otherwise': True, 
-		'namely': True, 
-		'thereupon': True, 
-		'get': True, 
-		'meanwhile': True, 
-		'hasnt': True,
-		'hasn\'t'
-		'hence': True, 
-		'whereby': True, 
-		'never': True, 
-		'something': True
+		"a": True,
+		"about": True,
+		"above": True,
+		"across": True,
+		"after": True,
+		"afterwards": True,
+		"again": True,
+		"against": True,
+		"all": True,
+		"almost": True,
+		"alone": True,
+		"along": True,
+		"already": True,
+		"also": True,
+		"although": True,
+		"always": True,
+		"am": True,
+		"among": True,
+		"amongst": True,
+		"amoungst": True,
+		"amount": True,
+		"an": True,
+		"and": True,
+		"another": True,
+		"any": True,
+		"anyhow": True,
+		"anyone": True,
+		"anything": True,
+		"anyway": True,
+		"anywhere": True,
+		"are": True,
+		"around": True,
+		"as": True,
+		"at": True,
+		"back": True,
+		"be": True,
+		"became": True,
+		"because": True,
+		"become": True,
+		"becomes": True,
+		"becoming": True,
+		"been": True,
+		"before": True,
+		"beforehand": True,
+		"behind": True,
+		"being": True,
+		"below": True,
+		"beside": True,
+		"besides": True,
+		"between": True,
+		"beyond": True,
+		"both": True,
+		"but": True,
+		"by": True,
+		"can": True,
+		"can\'t": True,
+		"cannot": True,
+		"cant": True,
+		"co": True,
+		"could not": True,
+		"could": True,
+		"couldn\'t": True,
+		"couldnt": True,
+		"de": True,
+		"describe": True,
+		"detail": True,
+		"did": True,
+		"do": True,
+		"does": True,
+		"doing": True,
+		"done": True,
+		"due": True,
+		"during": True,
+		"e.g": True,
+		"e.g.": True,
+		"e.g.,": True,
+		"each": True,
+		"eg": True,
+		"either": True,
+		"else": True,
+		"elsewhere": True,
+		"enough": True,
+		"etc": True,
+		"etc.": True,
+		"even though": True,
+		"ever": True,
+		"every": True,
+		"everyone": True,
+		"everything": True,
+		"everywhere": True,
+		"except": True,
+		"for": True,
+		"former": True,
+		"formerly": True,
+		"from": True,
+		"further": True,
+		"get": True,
+		"go": True,
+		"had": True,
+		"has not": True,
+		"has": True,
+		"hasn\'t": True,
+		"hasnt": True,
+		"have": True,
+		"having": True,
+		"he": True,
+		"hence": True,
+		"her": True,
+		"here": True,
+		"hereafter": True,
+		"hereby": True,
+		"herein": True,
+		"hereupon": True,
+		"hers": True,
+		"herself": True,
+		"him": True,
+		"himself": True,
+		"his": True,
+		"how": True,
+		"however": True,
+		"i": True,
+		"ie": True,
+		"i.e": True,
+		"i.e.": True,
+		"if": True,
+		"in": True,
+		"inc": True,
+		"inc.": True,
+		"indeed": True,
+		"into": True,
+		"is": True,
+		"it": True,
+		"its": True,
+		"it's": True,
+		"itself": True,
+		"just": True,
+		"keep": True,
+		"latter": True,
+		"latterly": True,
+		"less": True,
+		"made": True,
+		"make": True,
+		"may": True,
+		"me": True,
+		"meanwhile": True,
+		"might": True,
+		"mine": True,
+		"more": True,
+		"moreover": True,
+		"most": True,
+		"mostly": True,
+		"move": True,
+		"must": True,
+		"my": True,
+		"myself": True,
+		"namely": True,
+		"neither": True,
+		"never": True,
+		"nevertheless": True,
+		"next": True,
+		"no": True,
+		"nobody": True,
+		"none": True,
+		"noone": True,
+		"nor": True,
+		"not": True,
+		"nothing": True,
+		"now": True,
+		"nowhere": True,
+		"of": True,
+		"off": True,
+		"often": True,
+		"on": True,
+		"once": True,
+		"one": True,
+		"only": True,
+		"onto": True,
+		"or": True,
+		"other": True,
+		"others": True,
+		"otherwise": True,
+		"our": True,
+		"ours": True,
+		"ourselves": True,
+		"out": True,
+		"over": True,
+		"own": True,
+		"part": True,
+		"per": True,
+		"perhaps": True,
+		"please": True,
+		"put": True,
+		"rather": True,
+		"re": True,
+		"same": True,
+		"see": True,
+		"seem": True,
+		"seemed": True,
+		"seeming": True,
+		"seems": True,
+		"several": True,
+		"she": True,
+		"should": True,
+		"show": True,
+		"side": True,
+		"since": True,
+		"sincere": True,
+		"so": True,
+		"some": True,
+		"somehow": True,
+		"someone": True,
+		"something": True,
+		"sometime": True,
+		"sometimes": True,
+		"somewhere": True,
+		"still": True,
+		"such": True,
+		"take": True,
+		"than": True,
+		"that": True,
+		"the": True,
+		"their": True,
+		"theirs": True,
+		"them": True,
+		"themselves": True,
+		"then": True,
+		"thence": True,
+		"there": True,
+		"thereafter": True,
+		"thereby": True,
+		"therefore": True,
+		"therein": True,
+		"thereupon": True,
+		"these": True,
+		"they": True,
+		"this": True,
+		"those": True,
+		"though": True,
+		"through": True,
+		"throughout": True,
+		"thru": True,
+		"thus": True,
+		"to": True,
+		"together": True,
+		"too": True,
+		"toward": True,
+		"towards": True,
+		"un": True,
+		"until": True,
+		"upon": True,
+		"us": True,
+		"very": True,
+		"via": True,
+		"was": True,
+		"we": True,
+		"well": True,
+		"were": True,
+		"what": True,
+		"whatever": True,
+		"when": True,
+		"whence": True,
+		"whenever": True,
+		"where": True,
+		"whereafter": True,
+		"whereas": True,
+		"whereby": True,
+		"wherein": True,
+		"whereupon": True,
+		"wherever": True,
+		"whether": True,
+		"which": True,
+		"while": True,
+		"whither": True,
+		"who": True,
+		"whoever": True,
+		"whole": True,
+		"whom": True,
+		"whose": True,
+		"why": True,
+		"will": True,
+		"with": True,
+		"within": True,
+		"without": True,
+		"would": True,
+		"yet": True,
+		"you": True,
+		"your": True,
+		"yours": True,
+		"yourself": True,
+		"yourselves": True
 	}
 	
 	return stopwordsDict
@@ -1227,30 +1253,115 @@ def nlpServerStartStop(msg='start'):
 		except:
 			genericErrorInfo()
 
+def nlpTranformDocSelectSent(tokens, keys):
 
-def nlpStartServer_obsolete():
-	
-	try:
+	if( len(keys) == 0 ):
+		return True
 
-		proc = Popen(workingFolder() + 'corenlp/run.sh')
+	for i in range(len(keys)):
+		keys[i] = keys[i].lower()
+
+	keys = set(keys)
+	for tok in tokens:
 		
-		#enable server to load modules
-		time.sleep(2)
-		text = 'The quick brown fox jumped over the lazy dog.'
-		Popen(['wget', '-q', '-O', '-', '--post-data', text, 'localhost:9000/?properties={"annotators":"entitymentions","outputFormat":"json","date":"2017-11-04T19:03:47"}'])
-	except:
-		genericErrorInfo()
+		#only select sentences (non-lemmatized and lemmatized) in which at least a key exists
+		if( tok['tok'].lower() in keys or tok['lemma'].lower() in keys ):
+			return True
 
-def nlpStopServer_obsolete():
+	return False
+
+def nlpTranformDoc(doc, lemmaSentsFlag=True, getSentsWithTerms=[]):
+
+	#format document according to state of lemmaSentsFlag and getSentsWithTerms
+	if( len(doc) == 0 ):
+		return ''
+
+
+	#consider generating vocabulary from sentences (not tokens - includes non full words)
+
+	newDoc = ''
+	doc = nlpSentenceAnnotate(doc)
+	for sentence in doc['sentences']:
+		
+		addSentenceFlag = True
+		
+		if( len(getSentsWithTerms) != 0 ):
+			#only select sentences (non-lemmatized and lemmatized) in which at least a key exists
+			addSentenceFlag = nlpTranformDocSelectSent( sentence['tokens'], getSentsWithTerms )
+
+		if( addSentenceFlag ):
+
+			if( lemmaSentsFlag ):
+				newDoc = newDoc + sentence['lemmatized_sentence'] + '\n'
+			else:
+				newDoc = newDoc + sentence['sentence'] + '\n'
+
+	return newDoc
+
+
+def nlpSentenceAnnotate(text, parsed={}, host='localhost'):
+
+	payload = { 'sentences': [] }
+	if( text == '' ):
+		return payload
+
+	#see annotators: https://stanfordnlp.github.io/CoreNLP/annotators.html
+	#lemma annotator also does: tokenize, ssplit, pos
+	request = host + ':9000/?properties={"annotators":"lemma","outputFormat":"json"}'
+	
 
 	try:
-		check_output(['docker', 'rm', '-f', 'corenlpCon'])
+		if( len(parsed) == 0 ):
+			parsed = check_output(['wget', '-q', '-O', '-', '--post-data', text, request])
+
+		parsed = parsed.decode('utf-8')
+		parsed = json.loads( parsed )
+		#dumpJsonToFile( 'ner_output.json', parsed )#for debugging 
+
+		if( 'sentences' not in parsed ):
+			return []
+
+		for sentence in parsed['sentences']:
+
+			if( 'tokens' not in sentence ):
+				continue
+			
+			payload['sentences'].append({
+				'tokens': [],
+				'sentence': ''
+			})
+
+			lemmatizedSentence = ''
+			sentenceSize = len(sentence['tokens'])
+
+			for i in range( sentenceSize ):
+
+				tok = sentence['tokens'][i]
+				payload['sentences'][-1]['tokens'].append({
+					'pos': tok['pos'],
+					'tok': tok['originalText'],
+					'lemma': tok['lemma']
+				})
+
+				lemmatizedSentence = lemmatizedSentence + tok['lemma'] + tok['after']
+			
+			if( sentenceSize != 0 ):
+				
+				st = sentence['tokens'][0]['characterOffsetBegin']
+				en = sentence['tokens'][sentenceSize - 1]['characterOffsetBegin'] + 1
+				payload['sentences'][-1]['sentence'] = text[ st:en ]
+				payload['sentences'][-1]['lemmatized_sentence'] = lemmatizedSentence
+
 	except:
 		genericErrorInfo()
 
+	return payload
 
 #iso8601Date: YYYY-MM-DDTHH:MM:SS
 def nlpGetEntitiesFromText(text, host='localhost', iso8601Date='', labelLst=['PERSON','LOCATION','ORGANIZATION','DATE','MONEY','PERCENT','TIME'], params=None):
+
+	if( text == '' ):
+		return []
 
 	if( params is None ):
 		params = {}
@@ -1258,8 +1369,8 @@ def nlpGetEntitiesFromText(text, host='localhost', iso8601Date='', labelLst=['PE
 	iso8601Date = iso8601Date.strip()
 
 	#set default params - start
-	if( 'normalizedTimeNER' not in params ):
-		params['normalizedTimeNER'] = False
+	params.setdefault('normalizedTimeNER', False)
+	params.setdefault('listEntityContainer', True)#false means dict
 	#set default params - start
 
 	'''
@@ -1281,7 +1392,7 @@ def nlpGetEntitiesFromText(text, host='localhost', iso8601Date='', labelLst=['PE
 	try:
 		output = check_output(['wget', '-q', '-O', '-', '--post-data', text, request])
 		parsed = json.loads(output.decode('utf-8'))
-		#dumpJsonToFile( 'output.json', parsed )
+		#dumpJsonToFile( 'ner_output.json', parsed )#for debugging 
 
 		if( 'sentences' not in parsed ):
 			return []
@@ -1296,7 +1407,7 @@ def nlpGetEntitiesFromText(text, host='localhost', iso8601Date='', labelLst=['PE
 				#text is entity, ner is entity class
 				dedupKey = entity['text'] + entity['ner']
 				
-				if( dedupKey in dedupSet or entity['ner'] not in labelLst ):
+				if( entity['text'] == '' or dedupKey in dedupSet or entity['ner'] not in labelLst ):
 					continue
 					
 				#debug - start
@@ -1309,10 +1420,16 @@ def nlpGetEntitiesFromText(text, host='localhost', iso8601Date='', labelLst=['PE
 						else:
 							entity['text'] = ''
 				#debug - end
-
-				if( len(entity['text']) != 0 ):
+					
+				if( params['listEntityContainer'] ):
 					entities.append( [entity['text'], entity['ner']] )
-					dedupSet.add(dedupKey)
+				else:
+					entities.append({
+						'label': entity['ner'],
+						'entity': entity['text']
+					})
+				
+				dedupSet.add(dedupKey)
 	except:
 		genericErrorInfo()
 
@@ -4256,9 +4373,6 @@ def getGoogleSrchResCount(googleHTMLSoup):
 		print('\tgetGoog..ResC.t(): error parsing int:', resultStats)
 		return -1
 
-def isCaptchaOn(gSoup):
-	return False
-
 def googleGetSERPResults(query, maxPageToVisit=1, siteDirective='', pathFilenameMinusExtension=''):
 	print('\ngoogleGetSERPResults() - start')
 
@@ -4306,7 +4420,6 @@ def googleGetSERPResults(query, maxPageToVisit=1, siteDirective='', pathFilename
 				genericErrorInfo()
 
 		soup = BeautifulSoup( googleHTMLPage, 'html.parser')
-		pageDets['captch-on'] = isCaptchaOn(soup)
 		'''
 			linksDict format:
 			{
@@ -4488,7 +4601,8 @@ def dereferenceURI(URI, maxSleepInSeconds=5, extraParams=None):
 		'''
 		
 		if( maxSleepInSeconds > 0 ):
-			randSleep(maxSleepInSeconds)
+			print('\tderef.URI(), sleep:', maxSleepInSeconds)
+			time.sleep(maxSleepInSeconds)
 
 		extraParams.setdefault('sizeRestrict', 4000000)
 		htmlPage = mimicBrowser(URI, extraParams=extraParams)
@@ -4896,6 +5010,41 @@ def phantomJSGetHTML(uri):
 
 #uri - start
 
+def alexaRankDomain(domain, driver, extraParams=None):
+
+	print('\nalexaRankDomain():')
+
+	if( extraParams is None ):
+		extraParams = {}
+
+	extraParams.setdefault('maxSleep', 2)
+	extraParams.setdefault('closeBrowserFlag', True)
+
+	uri = 'https://www.alexa.com/siteinfo/' + domain
+	html = seleniumLoadWebpage( 
+		driver, 
+		uri, 
+		waitTimeInSeconds=extraParams['maxSleep'], 
+		closeBrowserFlag=extraParams['closeBrowserFlag'], 
+		extraParams=extraParams
+	)
+
+	payload = {}
+
+	try:
+		soup = BeautifulSoup(html, 'html.parser')
+		rank = soup.find(id='card_rank')
+		
+		if( rank is not None ):
+			
+			rank = rank.find(class_='big data')
+			if( rank is not None ):
+				payload['rank'] = int(rank.text.replace('#', '').replace(',', '').strip())
+	except:
+		genericErrorInfo()
+
+	return payload
+
 def dedupLinks(uriLst):
 
 	prev = len(uriLst)
@@ -5013,7 +5162,7 @@ def seleniumLoadPageScrollToEnd(driver, uri, closeBrowserFlag=True, maxScroll=20
 	return output
 
 def seleniumLoadWebpage(driver, uri, waitTimeInSeconds=10, closeBrowserFlag=True, extraParams=None):
-	print('seleniumLoadWebpage():')
+	print('\nseleniumLoadWebpage():')
 
 	uri = uri.strip()
 	if( len(uri) == 0 ):
@@ -5035,14 +5184,13 @@ def seleniumLoadWebpage(driver, uri, waitTimeInSeconds=10, closeBrowserFlag=True
 		'''
 
 		if( waitTimeInSeconds > 0 ):
-			print('\tsleeping in seconds:', waitTimeInSeconds)
+			print('\tsleep seconds:', waitTimeInSeconds)
 			time.sleep(waitTimeInSeconds)
 
 		if( 'script' in extraParams ):
 			driver.execute_script( extraParams['script'] )
 
 		html = driver.page_source.encode('utf-8')
-		
 		if( closeBrowserFlag ):
 			driver.quit()
 	except:
@@ -5325,8 +5473,9 @@ def isArchived(uri, mementoAggregator='http://memgator.cs.odu.edu/'):
 		return False
 	'''
 
-def getURIRFromMemento(memento):
+def getURIRFromMemento_obsolete(memento):
 	
+	#only accounts for http[s] schemes
 	memento = memento.strip()
 	if( len(memento) == 0 ):
 		return ''
@@ -5336,6 +5485,23 @@ def getURIRFromMemento(memento):
 		return ''
 	else:
 		return memento[indexOfLastScheme:]
+
+def getURIRFromMemento(memento):
+	
+	memento = memento.strip()
+	if( len(memento) == 0 ):
+		return ''
+
+	colonSlashSlash = memento.rfind('://')
+	if( colonSlashSlash == -1 ):
+		return ''
+	else:
+		indxScheme = memento[:colonSlashSlash].rfind('/')
+		
+		if( indxScheme == -1 ):
+			return ''
+
+		return memento[indxScheme + 1:]
 
 def downloadTimemap(urir):
 
@@ -5416,7 +5582,6 @@ def getDedupKeyForURI(uri):
 			optionalQuery = query.strip()
 
 		netloc = netloc.replace(':80', '')
-
 		return netloc + path + optionalQuery
 	except:
 		print('Error uri:', uri)
@@ -5468,6 +5633,76 @@ def expanUrlSecondTry(url, curIter=0, maxIter=100):
 	
 
 	return url
+
+def expandURIsLstDct(urisLstDct, extraParams=None):
+	
+	if( extraParams is None ):
+		extraParams = {}
+
+	extraParams.setdefault('shortURITest', False)
+
+	if( len(urisLstDct) == 0 ):
+		return []
+
+	uriMap = {}
+	urisLst = []
+
+	for i in range(len(urisLstDct)):
+
+		uri = urisLstDct[i]['uri']
+		
+		if( extraParams['shortURITest'] ):
+			if( naiveIsURIShort(uri) == False ):
+				continue	
+
+		uriMap[uri] = i 
+		urisLst.append(uri)
+
+	
+	expandedURIs = expandURIs(urisLst, extraParams=extraParams)
+	for i in range(len(expandedURIs)):
+		
+		#entries in urisLst and expandedURIs are pairs, so
+		#get location of original short uri 
+		originalURI = urisLst[i]
+		indx = uriMap[originalURI]
+
+		urisLstDct[indx]['long-uri'] = expandedURIs[i]
+
+	return urisLstDct
+
+def expandURIs(urisLst, extraParams=None):
+
+	if( extraParams is None ):
+		extraParams = {}
+
+	extraParams.setdefault('printMod', 10)
+
+	if( len(urisLst) == 0 ):
+		return []
+
+	jobsLst = []
+	size = str(len(urisLst))
+	for i in range(int(size)):
+
+		printMsg = ''
+		if( i % extraParams['printMod'] == 0 ):
+			printMsg = '\n\texpandURIs(): ' + str(i) + ' of ' + size + ': ' + urisLst[i]
+		
+		jobsLst.append( {
+			'func': expandUrl, 
+			'args': {'url': urisLst[i]}, 
+			'misc': False, 
+			'print': printMsg
+		})
+
+	resLst = parallelTask(jobsLst)
+	expandedURIs = []
+	
+	for res in resLst:
+		expandedURIs.append(res['output'])
+
+	return	expandedURIs
 
 def expandUrl(url, secondTryFlag=True, timeoutInSeconds='10'):
 
@@ -5755,7 +5990,7 @@ class DocVect(object):
 	def getNgram(docList, ngram, token_pattern=r'(?u)\b\w\w+\b'):
 
 		countVectorizer = CountVectorizer(stop_words='english', token_pattern=token_pattern, ngram_range=(ngram, ngram))
-		termFreqMatrix = countVectorizer.fit_transform(docList).toarray()
+		countVectorizer.fit_transform(docList)
 		
 		return countVectorizer.vocabulary_
 
